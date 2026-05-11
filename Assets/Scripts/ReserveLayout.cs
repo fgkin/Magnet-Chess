@@ -6,6 +6,14 @@ public class ReserveLayout : MonoBehaviour
     [Header("Layout")]
     [SerializeField] private Vector3 localStartOffset = Vector3.zero;
     [SerializeField] private Vector3 localStepOffset = new Vector3(0f, 0f, 0.8f);
+
+    [Header("Wrapping")]
+    [SerializeField] private int maxPiecesPerLine = 8;
+    [SerializeField] private float wrapSpacing = 0.8f;
+    [SerializeField] private bool wrapAwayFromArena = true;
+    [SerializeField] private Transform arenaCenter;
+
+    [Header("Piece")]
     [SerializeField] private float pieceY = 0.15f;
 
     private readonly List<MagnetPiece> reservePieces = new();
@@ -35,6 +43,9 @@ public class ReserveLayout : MonoBehaviour
     public void RefreshLayout()
     {
         int visibleIndex = 0;
+        int safeMaxPiecesPerLine = Mathf.Max(1, maxPiecesPerLine);
+
+        Vector3 wrapDirection = GetWrapDirection();
 
         for (int i = 0; i < reservePieces.Count; i++)
         {
@@ -46,8 +57,14 @@ public class ReserveLayout : MonoBehaviour
             if (piece.PieceState != MagnetPiece.State.Reserve)
                 continue;
 
-            Vector3 localPos = localStartOffset + localStepOffset * visibleIndex;
-            Vector3 worldPos = transform.TransformPoint(localPos);
+            int lineIndex = visibleIndex / safeMaxPiecesPerLine;
+            int indexInLine = visibleIndex % safeMaxPiecesPerLine;
+
+            Vector3 baseWorldPos = transform.TransformPoint(
+                localStartOffset + localStepOffset * indexInLine
+            );
+
+            Vector3 worldPos = baseWorldPos + wrapDirection * wrapSpacing * lineIndex;
             worldPos.y = pieceY;
 
             piece.transform.position = worldPos;
@@ -56,6 +73,28 @@ public class ReserveLayout : MonoBehaviour
             piece.gameObject.layer = LayerMask.NameToLayer("DraggableMagnet");
 
             visibleIndex++;
+        }
+    }
+
+    private Vector3 GetWrapDirection()
+    {
+        if (!wrapAwayFromArena || arenaCenter == null)
+            return transform.right;
+
+        Vector3 direction = transform.position - arenaCenter.position;
+        direction.y = 0f;
+
+        if (direction.sqrMagnitude < 0.001f)
+            return transform.right;
+
+        // Make wrapping cleanly horizontal or vertical, not diagonal.
+        if (Mathf.Abs(direction.x) > Mathf.Abs(direction.z))
+        {
+            return direction.x >= 0f ? Vector3.right : Vector3.left;
+        }
+        else
+        {
+            return direction.z >= 0f ? Vector3.forward : Vector3.back;
         }
     }
 
