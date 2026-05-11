@@ -389,6 +389,53 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 68352613}
   m_CullTransparentMesh: 1
+--- !u!1 &229602977
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 229602979}
+  - component: {fileID: 229602978}
+  m_Layer: 0
+  m_Name: Player4ReserveLayout
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &229602978
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 229602977}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 44d3e366642ece64cbfe29ef73d74d86, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ReserveLayout
+  localStartOffset: {x: -2, y: 0, z: 0}
+  localStepOffset: {x: 0.8, y: 0, z: 0}
+  pieceY: 0.15
+--- !u!4 &229602979
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 229602977}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -0.04, y: -0, z: -2.46}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &318954889
 GameObject:
   m_ObjectHideFlags: 0
@@ -1327,6 +1374,53 @@ Transform:
   m_LocalPosition: {x: 0, y: 0, z: -0}
   m_LocalScale: {x: 4, y: 2.6666667, z: 5.3333335}
   m_ConstrainProportionsScale: 1
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &606965210
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 606965212}
+  - component: {fileID: 606965211}
+  m_Layer: 0
+  m_Name: Player3ReserveLayout
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &606965211
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 606965210}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 44d3e366642ece64cbfe29ef73d74d86, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ReserveLayout
+  localStartOffset: {x: -2, y: 0, z: 0}
+  localStepOffset: {x: 0.8, y: 0, z: 0}
+  pieceY: 0.15
+--- !u!4 &606965212
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 606965210}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -0.3, y: -0, z: 3.09}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
@@ -2598,11 +2692,14 @@ MonoBehaviour:
   magnetPrefab: {fileID: 7043466865163358730, guid: ae731d415662fe84691f807f4634bf23, type: 3}
   player1ReserveLayout: {fileID: 972031549}
   player2ReserveLayout: {fileID: 1274361291}
+  player3ReserveLayout: {fileID: 606965211}
+  player4ReserveLayout: {fileID: 229602978}
   magnetSystem: {fileID: 1881477617}
   gameAudio: {fileID: 1881477618}
   cameraShake: {fileID: 330585548}
   turnDuration: 10
   currentTurnTimeRemaining: 0
+  activePlayerCount: 4
   magnetsPerPlayer: 6
   currentTurn: 0
   currentState: 0
@@ -2944,6 +3041,8 @@ MonoBehaviour:
   timerText: {fileID: 318954890}
   p1CountText: {fileID: 2068859221}
   p2CountText: {fileID: 1961769188}
+  p3CountText: {fileID: 0}
+  p4CountText: {fileID: 0}
   gameOverText: {fileID: 68352615}
   restartButton: {fileID: 936399634}
   mainMenuButton: {fileID: 54648484}
@@ -3366,6 +3465,8 @@ SceneRoots:
   - {fileID: 1355731812}
   - {fileID: 972031550}
   - {fileID: 1274361292}
+  - {fileID: 606965212}
+  - {fileID: 229602979}
   - {fileID: 1900973705}
   - {fileID: 1955824747}
   - {fileID: 826813232}
