@@ -3246,6 +3246,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::GameManager
   piecePlacement: {fileID: 1881477615}
   magnetPrefab: {fileID: 7043466865163358730, guid: ae731d415662fe84691f807f4634bf23, type: 3}
+  arenaBounds: {fileID: 1355731813}
   player1ReserveLayout: {fileID: 972031549}
   player2ReserveLayout: {fileID: 1274361291}
   player3ReserveLayout: {fileID: 606965211}
@@ -3257,6 +3258,12 @@ MonoBehaviour:
   currentTurnTimeRemaining: 0
   activePlayerCount: 4
   magnetsPerPlayer: 6
+  visibleArena: {fileID: 1355731812}
+  arenaRadiiFor2Players: {x: 4, y: 3}
+  arenaRadiiFor3Players: {x: 4.2, y: 3.1}
+  arenaRadiiFor4Players: {x: 4.4, y: 3.2}
+  visibleArenaBaseScale: {x: 8, y: 0.01, z: 4}
+  scaleVisibleArena: 1
   currentTurn: 0
   currentState: 0
 --- !u!114 &1881477617
