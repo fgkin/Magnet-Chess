@@ -1,0 +1,44 @@
+using UnityEngine;
+
+public class ArenaEllipseBounds : MonoBehaviour
+{
+    [SerializeField] private Transform centerPoint;
+    [SerializeField] private float radiusX = 4f;
+    [SerializeField] private float radiusZ = 3f;
+
+    private void Reset()
+    {
+        centerPoint = transform;
+    }
+
+    public bool IsInside(Vector3 worldPosition)
+    {
+        Vector3 center = centerPoint.position;
+
+        float dx = worldPosition.x - center.x;
+        float dz = worldPosition.z - center.z;
+
+        float value = (dx * dx) / (radiusX * radiusX) + (dz * dz) / (radiusZ * radiusZ);
+        return value <= 1f;
+    }
+
+    public Vector3 ClampToEllipse(Vector3 worldPosition)
+    {
+        Vector3 center = centerPoint.position;
+
+        float dx = worldPosition.x - center.x;
+        float dz = worldPosition.z - center.z;
+
+        float value = (dx * dx) / (radiusX * radiusX) + (dz * dz) / (radiusZ * radiusZ);
+
+        if (value <= 1f)
+            return worldPosition;
+
+        float scale = 1f / Mathf.Sqrt(value);
+
+        float clampedX = center.x + dx * scale;
+        float clampedZ = center.z + dz * scale;
+
+        return new Vector3(clampedX, worldPosition.y, clampedZ);
+    }
+}

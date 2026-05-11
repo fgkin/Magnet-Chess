@@ -1,0 +1,10 @@
+# ninja log v5
+20	2254	7973128408183620	GameActivity/CMakeFiles/game.dir/UGAEntry.cpp.o	b8899b6dd917d258
+26	2278	7973128408128098	GameActivity/CMakeFiles/game.dir/UGAInputKeyEvent.cpp.o	a8ec409f4eb113bf
+7	2298	7973128408361333	GameActivity/CMakeFiles/game.dir/UGAConfiguration.cpp.o	52cd97295a9290ae
+14	2386	7973128409725071	GameActivity/CMakeFiles/game.dir/UGADebug.cpp.o	671cb089b3366354
+33	2677	7973128412599020	GameActivity/CMakeFiles/game.dir/UGAInput.cpp.o	ba66880463940a07
+0	2882	7973128414665882	GameActivity/CMakeFiles/game.dir/UGAApplication.cpp.o	bee718a4a14c5634
+2278	3727	7973128423236056	GameActivity/CMakeFiles/game.dir/UGAInputMotionEvent.cpp.o	44f9e4e1cdd089c5
+2260	3983	7973128425811079	GameActivity/CMakeFiles/game.dir/UGASoftKeyboard.cpp.o	ac633e7279cb7de5
+3983	4135	7973128427320788	D:/Unity/Projects/Magnet Chess/Library/Bee/Android/Prj/IL2CPP/Gradle/unityLibrary/build/intermediates/cxx/RelWithDebInfo/2d2h4w33/obj/arm64-v8a/libgame.so	db74a86edd1f8b96
