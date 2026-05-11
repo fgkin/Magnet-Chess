@@ -6,14 +6,23 @@ public class ArenaEllipseBounds : MonoBehaviour
     [SerializeField] private float radiusX = 4f;
     [SerializeField] private float radiusZ = 3f;
 
+    public float RadiusX => radiusX;
+    public float RadiusZ => radiusZ;
+
     private void Reset()
     {
         centerPoint = transform;
     }
 
+    public void SetRadii(float newRadiusX, float newRadiusZ)
+    {
+        radiusX = Mathf.Max(0.1f, newRadiusX);
+        radiusZ = Mathf.Max(0.1f, newRadiusZ);
+    }
+
     public bool IsInside(Vector3 worldPosition)
     {
-        Vector3 center = centerPoint.position;
+        Vector3 center = centerPoint != null ? centerPoint.position : transform.position;
 
         float dx = worldPosition.x - center.x;
         float dz = worldPosition.z - center.z;
@@ -24,7 +33,7 @@ public class ArenaEllipseBounds : MonoBehaviour
 
     public Vector3 ClampToEllipse(Vector3 worldPosition)
     {
-        Vector3 center = centerPoint.position;
+        Vector3 center = centerPoint != null ? centerPoint.position : transform.position;
 
         float dx = worldPosition.x - center.x;
         float dz = worldPosition.z - center.z;

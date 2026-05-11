@@ -21,6 +21,7 @@ public class GameManager : MonoBehaviour
     [Header("References")]
     [SerializeField] private PiecePlacement piecePlacement;
     [SerializeField] private MagnetPiece magnetPrefab;
+    [SerializeField] private ArenaEllipseBounds arenaBounds;
 
     [Header("Reserve Layouts")]
     [SerializeField] private ReserveLayout player1ReserveLayout;
@@ -43,6 +44,14 @@ public class GameManager : MonoBehaviour
 
     [SerializeField] private int magnetsPerPlayer = 6;
 
+    [Header("Arena Scaling")]
+    [SerializeField] private Transform visibleArena;
+    [SerializeField] private Vector2 arenaRadiiFor2Players = new Vector2(4f, 3f);
+    [SerializeField] private Vector2 arenaRadiiFor3Players = new Vector2(4.8f, 3.5f);
+    [SerializeField] private Vector2 arenaRadiiFor4Players = new Vector2(5.5f, 4f);
+    [SerializeField] private Vector3 visibleArenaBaseScale = Vector3.one;
+    [SerializeField] private bool scaleVisibleArena = true;
+
     [Header("Debug")]
     [SerializeField] private TurnOwner currentTurn = TurnOwner.Player1;
     [SerializeField] private TurnState currentState = TurnState.WaitingForPlayerInput;
@@ -60,6 +69,8 @@ public class GameManager : MonoBehaviour
     private void Start()
     {
         activePlayerCount = Mathf.Clamp(activePlayerCount, 2, 4);
+        
+        ApplyArenaSizeForPlayerCount();
 
         CreateAllPieces();
 
@@ -413,6 +424,45 @@ public class GameManager : MonoBehaviour
             return "Draw!";
 
         return $"{winners[0]} Wins!";
+    }
+
+    private void ApplyArenaSizeForPlayerCount()
+    {
+        Vector2 selectedRadii = GetArenaRadiiForPlayerCount(activePlayerCount);
+
+        if (arenaBounds != null)
+            arenaBounds.SetRadii(selectedRadii.x, selectedRadii.y);
+
+        if (scaleVisibleArena && visibleArena != null)
+            ScaleVisibleArena(selectedRadii);
+    }
+
+    private Vector2 GetArenaRadiiForPlayerCount(int playerCount)
+    {
+        return playerCount switch
+        {
+            2 => arenaRadiiFor2Players,
+            3 => arenaRadiiFor3Players,
+            4 => arenaRadiiFor4Players,
+            _ => arenaRadiiFor2Players
+        };
+    }
+
+    private void ScaleVisibleArena(Vector2 selectedRadii)
+    {
+        Vector2 baseRadii = arenaRadiiFor2Players;
+
+        if (baseRadii.x <= 0f || baseRadii.y <= 0f)
+            return;
+
+        float scaleX = selectedRadii.x / baseRadii.x;
+        float scaleZ = selectedRadii.y / baseRadii.y;
+
+        visibleArena.localScale = new Vector3(
+            visibleArenaBaseScale.x * scaleX,
+            visibleArenaBaseScale.y,
+            visibleArenaBaseScale.z * scaleZ
+        );
     }
 
     public void CollectCluster(List<MagnetPiece> cluster)
