@@ -5,7 +5,9 @@ public class MagnetPiece : MonoBehaviour
     public enum Owner
     {
         Player1,
-        Player2
+        Player2,
+        Player3,
+        Player4
     }
 
     public enum State
@@ -69,7 +71,6 @@ public class MagnetPiece : MonoBehaviour
         }
         else
         {
-            // Only reset velocity if NOT already kinematic
             if (!rb.isKinematic)
             {
                 rb.linearVelocity = Vector3.zero;
@@ -102,6 +103,6 @@ public class MagnetPiece : MonoBehaviour
         if (pieceRenderer == null)
             return;
 
-         pieceRenderer.material.color = defaultColor;
+        pieceRenderer.material.color = defaultColor;
     }
 }

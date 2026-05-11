@@ -12,6 +12,8 @@ public class GameUI : MonoBehaviour
     [SerializeField] private TextMeshProUGUI timerText;
     [SerializeField] private TextMeshProUGUI p1CountText;
     [SerializeField] private TextMeshProUGUI p2CountText;
+    [SerializeField] private TextMeshProUGUI p3CountText;
+    [SerializeField] private TextMeshProUGUI p4CountText;
 
     [Header("Game Over")]
     [SerializeField] private TextMeshProUGUI gameOverText;
@@ -31,6 +33,9 @@ public class GameUI : MonoBehaviour
 
     private void UpdateTurnText()
     {
+        if (turnText == null)
+            return;
+
         if (gameManager.CurrentState == GameManager.TurnState.GameOver)
         {
             turnText.gameObject.SetActive(false);
@@ -39,9 +44,14 @@ public class GameUI : MonoBehaviour
 
         turnText.gameObject.SetActive(true);
 
-        string turnLabel = gameManager.CurrentTurn == GameManager.TurnOwner.Player1
-            ? "Player 1"
-            : "Player 2";
+        string turnLabel = gameManager.CurrentTurn switch
+        {
+            GameManager.TurnOwner.Player1 => "Player 1",
+            GameManager.TurnOwner.Player2 => "Player 2",
+            GameManager.TurnOwner.Player3 => "Player 3",
+            GameManager.TurnOwner.Player4 => "Player 4",
+            _ => "Player"
+        };
 
         turnText.text = $"Turn: {turnLabel}";
     }
@@ -65,8 +75,25 @@ public class GameUI : MonoBehaviour
 
     private void UpdateReserveCounts()
     {
-        p1CountText.text = $"P1: {gameManager.GetPlayer1ReserveCount()}";
-        p2CountText.text = $"P2: {gameManager.GetPlayer2ReserveCount()}";
+        SetCountText(p1CountText, 1);
+        SetCountText(p2CountText, 2);
+        SetCountText(p3CountText, 3);
+        SetCountText(p4CountText, 4);
+    }
+
+    private void SetCountText(TextMeshProUGUI text, int playerNumber)
+    {
+        if (text == null)
+            return;
+
+        bool playerIsActive = playerNumber <= gameManager.ActivePlayerCount;
+        text.gameObject.SetActive(playerIsActive);
+
+        if (!playerIsActive)
+            return;
+
+        int count = gameManager.GetReserveCountForPlayer(playerNumber);
+        text.text = $"P{playerNumber}: {count}";
     }
 
     private void UpdateGameOverUI()

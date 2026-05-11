@@ -6,7 +6,9 @@ public class GameManager : MonoBehaviour
     public enum TurnOwner
     {
         Player1,
-        Player2
+        Player2,
+        Player3,
+        Player4
     }
 
     public enum TurnState
@@ -19,8 +21,14 @@ public class GameManager : MonoBehaviour
     [Header("References")]
     [SerializeField] private PiecePlacement piecePlacement;
     [SerializeField] private MagnetPiece magnetPrefab;
+
+    [Header("Reserve Layouts")]
     [SerializeField] private ReserveLayout player1ReserveLayout;
     [SerializeField] private ReserveLayout player2ReserveLayout;
+    [SerializeField] private ReserveLayout player3ReserveLayout;
+    [SerializeField] private ReserveLayout player4ReserveLayout;
+
+    [Header("Systems")]
     [SerializeField] private MagnetSystem magnetSystem;
     [SerializeField] private GameAudio gameAudio;
     [SerializeField] private CameraShake cameraShake;
@@ -30,21 +38,29 @@ public class GameManager : MonoBehaviour
     [SerializeField] private float currentTurnTimeRemaining;
 
     [Header("Setup")]
+    [Range(2, 4)]
+    [SerializeField] private int activePlayerCount = 2;
+
     [SerializeField] private int magnetsPerPlayer = 6;
 
     [Header("Debug")]
     [SerializeField] private TurnOwner currentTurn = TurnOwner.Player1;
     [SerializeField] private TurnState currentState = TurnState.WaitingForPlayerInput;
-   
 
     private readonly List<MagnetPiece> player1Pieces = new();
     private readonly List<MagnetPiece> player2Pieces = new();
+    private readonly List<MagnetPiece> player3Pieces = new();
+    private readonly List<MagnetPiece> player4Pieces = new();
 
     public TurnOwner CurrentTurn => currentTurn;
     public TurnState CurrentState => currentState;
+    public float CurrentTurnTimeRemaining => currentTurnTimeRemaining;
+    public int ActivePlayerCount => activePlayerCount;
 
     private void Start()
     {
+        activePlayerCount = Mathf.Clamp(activePlayerCount, 2, 4);
+
         CreateAllPieces();
 
         if (piecePlacement != null)
@@ -68,10 +84,23 @@ public class GameManager : MonoBehaviour
             piecePlacement.OnPiecePlacedSuccessfully -= HandlePiecePlaced;
     }
 
+    private void Update()
+    {
+        UpdateTurnTimer();
+    }
+
     private void CreateAllPieces()
     {
         SpawnReservePieces(MagnetPiece.Owner.Player1, player1Pieces, player1ReserveLayout);
-        SpawnReservePieces(MagnetPiece.Owner.Player2, player2Pieces, player2ReserveLayout);
+
+        if (activePlayerCount >= 2)
+            SpawnReservePieces(MagnetPiece.Owner.Player2, player2Pieces, player2ReserveLayout);
+
+        if (activePlayerCount >= 3)
+            SpawnReservePieces(MagnetPiece.Owner.Player3, player3Pieces, player3ReserveLayout);
+
+        if (activePlayerCount >= 4)
+            SpawnReservePieces(MagnetPiece.Owner.Player4, player4Pieces, player4ReserveLayout);
     }
 
     private void SpawnReservePieces(
@@ -79,6 +108,12 @@ public class GameManager : MonoBehaviour
         List<MagnetPiece> targetList,
         ReserveLayout reserveLayout)
     {
+        if (reserveLayout == null)
+        {
+            Debug.LogWarning($"Missing reserve layout for {owner}");
+            return;
+        }
+
         for (int i = 0; i < magnetsPerPlayer; i++)
         {
             MagnetPiece piece = Instantiate(magnetPrefab, Vector3.zero, Quaternion.identity);
@@ -89,12 +124,16 @@ public class GameManager : MonoBehaviour
         }
     }
 
-   private void BeginPlayerTurn()
+    private void BeginPlayerTurn()
     {
         if (IsGameOver())
         {
             currentState = TurnState.GameOver;
             Debug.Log(GetWinnerMessage());
+
+            if (gameAudio != null)
+                gameAudio.PlayVictory();
+
             return;
         }
 
@@ -102,11 +141,6 @@ public class GameManager : MonoBehaviour
         currentTurnTimeRemaining = turnDuration;
 
         Debug.Log($"Turn started: {currentTurn}");
-    }
-
-    private void Update()
-    {
-        UpdateTurnTimer();
     }
 
     private void UpdateTurnTimer()
@@ -134,16 +168,12 @@ public class GameManager : MonoBehaviour
 
         if (gameAudio != null)
             gameAudio.PlayTimeout();
+
         if (piecePlacement != null)
             piecePlacement.CancelCurrentDrag();
 
         RefreshAllReserveLayouts();
         FinishTurnResolution();
-    }
-
-    public void RefreshReserveLayouts()
-    {
-        RefreshAllReserveLayouts();
     }
 
     private void HandlePiecePlaced(MagnetPiece placedPiece)
@@ -168,8 +198,10 @@ public class GameManager : MonoBehaviour
         {
             currentState = TurnState.GameOver;
             Debug.Log(GetWinnerMessage());
+
             if (gameAudio != null)
                 gameAudio.PlayVictory();
+
             return;
         }
 
@@ -179,9 +211,79 @@ public class GameManager : MonoBehaviour
 
     private void SwitchTurn()
     {
-        currentTurn = currentTurn == TurnOwner.Player1
-            ? TurnOwner.Player2
-            : TurnOwner.Player1;
+        int currentIndex = TurnOwnerToIndex(currentTurn);
+        int nextIndex = (currentIndex + 1) % activePlayerCount;
+        currentTurn = IndexToTurnOwner(nextIndex);
+    }
+
+    private int TurnOwnerToIndex(TurnOwner owner)
+    {
+        return owner switch
+        {
+            TurnOwner.Player1 => 0,
+            TurnOwner.Player2 => 1,
+            TurnOwner.Player3 => 2,
+            TurnOwner.Player4 => 3,
+            _ => 0
+        };
+    }
+
+    private TurnOwner IndexToTurnOwner(int index)
+    {
+        return index switch
+        {
+            0 => TurnOwner.Player1,
+            1 => TurnOwner.Player2,
+            2 => TurnOwner.Player3,
+            3 => TurnOwner.Player4,
+            _ => TurnOwner.Player1
+        };
+    }
+
+    private MagnetPiece.Owner TurnOwnerToPieceOwner(TurnOwner owner)
+    {
+        return owner switch
+        {
+            TurnOwner.Player1 => MagnetPiece.Owner.Player1,
+            TurnOwner.Player2 => MagnetPiece.Owner.Player2,
+            TurnOwner.Player3 => MagnetPiece.Owner.Player3,
+            TurnOwner.Player4 => MagnetPiece.Owner.Player4,
+            _ => MagnetPiece.Owner.Player1
+        };
+    }
+
+    private int PieceOwnerToIndex(MagnetPiece.Owner owner)
+    {
+        return owner switch
+        {
+            MagnetPiece.Owner.Player1 => 0,
+            MagnetPiece.Owner.Player2 => 1,
+            MagnetPiece.Owner.Player3 => 2,
+            MagnetPiece.Owner.Player4 => 3,
+            _ => 0
+        };
+    }
+
+    private ReserveLayout GetReserveLayoutByIndex(int index)
+    {
+        return index switch
+        {
+            0 => player1ReserveLayout,
+            1 => player2ReserveLayout,
+            2 => player3ReserveLayout,
+            3 => player4ReserveLayout,
+            _ => null
+        };
+    }
+
+    private ReserveLayout GetReserveLayoutByOwner(MagnetPiece.Owner owner)
+    {
+        return GetReserveLayoutByIndex(PieceOwnerToIndex(owner));
+    }
+
+    private ReserveLayout GetCurrentTurnReserveLayout()
+    {
+        return GetReserveLayoutByIndex(TurnOwnerToIndex(currentTurn));
     }
 
     private void RefreshReserveLayoutForPiece(MagnetPiece piece)
@@ -189,19 +291,26 @@ public class GameManager : MonoBehaviour
         if (piece == null)
             return;
 
-        if (piece.PieceOwner == MagnetPiece.Owner.Player1)
-            player1ReserveLayout.RefreshLayout();
-        else
-            player2ReserveLayout.RefreshLayout();
+        ReserveLayout layout = GetReserveLayoutByOwner(piece.PieceOwner);
+
+        if (layout != null)
+            layout.RefreshLayout();
     }
 
     private void RefreshAllReserveLayouts()
     {
-        if (player1ReserveLayout != null)
-            player1ReserveLayout.RefreshLayout();
+        for (int i = 0; i < activePlayerCount; i++)
+        {
+            ReserveLayout layout = GetReserveLayoutByIndex(i);
 
-        if (player2ReserveLayout != null)
-            player2ReserveLayout.RefreshLayout();
+            if (layout != null)
+                layout.RefreshLayout();
+        }
+    }
+
+    public void RefreshReserveLayouts()
+    {
+        RefreshAllReserveLayouts();
     }
 
     public bool CanPlayerInteract()
@@ -220,64 +329,90 @@ public class GameManager : MonoBehaviour
         if (piece.PieceState != MagnetPiece.State.Reserve)
             return false;
 
-        if (currentTurn == TurnOwner.Player1 && piece.PieceOwner != MagnetPiece.Owner.Player1)
-            return false;
+        MagnetPiece.Owner currentOwner = TurnOwnerToPieceOwner(currentTurn);
 
-        if (currentTurn == TurnOwner.Player2 && piece.PieceOwner != MagnetPiece.Owner.Player2)
-            return false;
+        return piece.PieceOwner == currentOwner;
+    }
 
-        return true;
+    public int GetReserveCountForPlayer(int playerNumber)
+    {
+        int index = playerNumber - 1;
+
+        if (index < 0 || index >= activePlayerCount)
+            return 0;
+
+        ReserveLayout layout = GetReserveLayoutByIndex(index);
+
+        return layout != null ? layout.GetReserveCount() : 0;
     }
 
     public int GetPlayer1ReserveCount()
     {
-        return player1ReserveLayout != null ? player1ReserveLayout.GetReserveCount() : 0;
+        return GetReserveCountForPlayer(1);
     }
 
     public int GetPlayer2ReserveCount()
     {
-        return player2ReserveLayout != null ? player2ReserveLayout.GetReserveCount() : 0;
+        return GetReserveCountForPlayer(2);
     }
 
-    public float CurrentTurnTimeRemaining => currentTurnTimeRemaining;
+    public int GetPlayer3ReserveCount()
+    {
+        return GetReserveCountForPlayer(3);
+    }
+
+    public int GetPlayer4ReserveCount()
+    {
+        return GetReserveCountForPlayer(4);
+    }
 
     private bool IsGameOver()
     {
-        return GetPlayer1ReserveCount() == 0 || GetPlayer2ReserveCount() == 0;
+        for (int i = 0; i < activePlayerCount; i++)
+        {
+            if (GetReserveCountForPlayer(i + 1) == 0)
+                return true;
+        }
+
+        return false;
     }
 
     private string GetWinnerMessage()
     {
-        bool p1Empty = GetPlayer1ReserveCount() == 0;
-        bool p2Empty = GetPlayer2ReserveCount() == 0;
+        List<string> winners = new();
 
-        if (p1Empty && p2Empty)
+        for (int i = 0; i < activePlayerCount; i++)
+        {
+            if (GetReserveCountForPlayer(i + 1) == 0)
+                winners.Add($"Player {i + 1}");
+        }
+
+        if (winners.Count == 0)
+            return "Game still running.";
+
+        if (winners.Count > 1)
             return "Draw!";
 
-        if (p1Empty)
-            return "Player 1 wins!";
-
-        if (p2Empty)
-            return "Player 2 wins!";
-
-        return "Game still running.";
+        return $"{winners[0]} wins!";
     }
 
     public string GetWinnerUILabel()
     {
-        bool p1Empty = GetPlayer1ReserveCount() == 0;
-        bool p2Empty = GetPlayer2ReserveCount() == 0;
+        List<string> winners = new();
 
-        if (p1Empty && p2Empty)
+        for (int i = 0; i < activePlayerCount; i++)
+        {
+            if (GetReserveCountForPlayer(i + 1) == 0)
+                winners.Add($"Player {i + 1}");
+        }
+
+        if (winners.Count == 0)
+            return "";
+
+        if (winners.Count > 1)
             return "Draw!";
 
-        if (p1Empty)
-            return "Player 1 Wins!";
-
-        if (p2Empty)
-            return "Player 2 Wins!";
-
-        return "";
+        return $"{winners[0]} Wins!";
     }
 
     public void CollectCluster(List<MagnetPiece> cluster)
@@ -298,25 +433,28 @@ public class GameManager : MonoBehaviour
 
         Debug.Log("Collecting cluster for current turn player...");
 
-        MagnetPiece.Owner collector =
-            currentTurn == TurnOwner.Player1
-            ? MagnetPiece.Owner.Player1
-            : MagnetPiece.Owner.Player2;
+        MagnetPiece.Owner collector = TurnOwnerToPieceOwner(currentTurn);
+        ReserveLayout targetReserve = GetCurrentTurnReserveLayout();
 
-        ReserveLayout targetReserve =
-            currentTurn == TurnOwner.Player1
-            ? player1ReserveLayout
-            : player2ReserveLayout;
+        if (targetReserve == null)
+        {
+            Debug.LogWarning("No reserve layout found for current turn player.");
+            FinishTurnResolution();
+            return;
+        }
 
         foreach (var piece in cluster)
         {
             if (piece == null)
                 continue;
 
-            // In case this piece was already registered in the other reserve earlier,
-            // remove it from both reserve lists before re-registering.
-            player1ReserveLayout.UnregisterPiece(piece);
-            player2ReserveLayout.UnregisterPiece(piece);
+            for (int i = 0; i < activePlayerCount; i++)
+            {
+                ReserveLayout layout = GetReserveLayoutByIndex(i);
+
+                if (layout != null)
+                    layout.UnregisterPiece(piece);
+            }
 
             piece.SetOwner(collector);
             piece.SetState(MagnetPiece.State.Reserve);
