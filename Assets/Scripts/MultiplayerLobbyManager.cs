@@ -56,7 +56,7 @@ public class MultiplayerLobbyManager : MonoBehaviour
     private void Update()
     {
         HandleLobbyHeartbeat();
-        HandleLobbyPolling();
+        
     }
 
     private async Task InitializeUnityServices()
@@ -226,7 +226,7 @@ public class MultiplayerLobbyManager : MonoBehaviour
             SetLobbyCode("-");
             SetPlayerCount(0);
         }
-        
+
         catch (Exception e)
         {
             Debug.LogWarning("Leave lobby failed: " + e.Message);
@@ -328,19 +328,20 @@ public class MultiplayerLobbyManager : MonoBehaviour
     {
         Debug.Log("Client connected: " + clientId);
 
-        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsHost)
+        if (NetworkManager.Singleton != null)
         {
-            SetStatus("Lobby active. Waiting for players...");
-        }
-        else
-        {
-            SetStatus("Connected to host.");
+            SetPlayerCount(NetworkManager.Singleton.ConnectedClientsIds.Count);
         }
     }
 
     private void OnClientDisconnected(ulong clientId)
     {
-        SetStatus("Client disconnected: " + clientId);
+        Debug.Log("Client disconnected: " + clientId);
+
+        if (NetworkManager.Singleton != null)
+        {
+            SetPlayerCount(NetworkManager.Singleton.ConnectedClientsIds.Count);
+        }
     }
 
     private void SetStatus(string message)

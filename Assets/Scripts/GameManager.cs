@@ -1,7 +1,8 @@
 using System.Collections.Generic;
+using Unity.Netcode;
 using UnityEngine;
 
-public class GameManager : MonoBehaviour
+public class GameManager : NetworkBehaviour
 {
     public enum TurnOwner
     {
@@ -17,6 +18,30 @@ public class GameManager : MonoBehaviour
         ResolvingTurn,
         GameOver
     }
+
+    private readonly NetworkVariable<int> networkCurrentTurnIndex = new(
+    0,
+    NetworkVariableReadPermission.Everyone,
+    NetworkVariableWritePermission.Server
+    );
+
+    private readonly NetworkVariable<int> networkTurnState = new(
+        0,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
+
+    private readonly NetworkVariable<float> networkTurnTimeRemaining = new(
+        10f,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
+
+    private readonly NetworkVariable<int> networkActivePlayerCount = new(
+        2,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
 
     [Header("References")]
     [SerializeField] private PiecePlacement piecePlacement;
@@ -61,42 +86,89 @@ public class GameManager : MonoBehaviour
     private readonly List<MagnetPiece> player3Pieces = new();
     private readonly List<MagnetPiece> player4Pieces = new();
 
-    public TurnOwner CurrentTurn => currentTurn;
-    public TurnState CurrentState => currentState;
-    public float CurrentTurnTimeRemaining => currentTurnTimeRemaining;
-    public int ActivePlayerCount => activePlayerCount;
+    public TurnOwner CurrentTurn =>
+    IsOnlineGame()
+        ? IndexToTurnOwner(networkCurrentTurnIndex.Value)
+        : currentTurn;
+
+    public TurnState CurrentState =>
+        IsOnlineGame()
+            ? (TurnState)networkTurnState.Value
+            : currentState;
+
+    public float CurrentTurnTimeRemaining =>
+        IsOnlineGame()
+            ? networkTurnTimeRemaining.Value
+            : currentTurnTimeRemaining;
+
+    public int ActivePlayerCount =>
+        IsOnlineGame()
+            ? networkActivePlayerCount.Value
+            : activePlayerCount;
+
+    public bool IsOnlineGame()
+    {
+        return NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening;
+    }
+
+    private System.Collections.IEnumerator RegisterPiecesOnClientAfterDelay()
+    {
+        yield return new WaitForSeconds(1f);
+        RegisterExistingNetworkPiecesToLayouts();
+    }
+
+   private bool hasInitialized;
 
     private void Start()
     {
-        activePlayerCount = Mathf.Clamp(activePlayerCount, 2, 4);
-        
-        ApplyArenaSizeForPlayerCount();
+        if (IsOnlineGame())
+            return;
 
-        CreateAllPieces();
+        InitializeGameLocal();
+    }
+
+    public override void OnNetworkSpawn()
+    {
+        if (!IsOnlineGame())
+            return;
 
         if (piecePlacement != null)
-        {
-            piecePlacement.OnPiecePlacedSuccessfully += HandlePiecePlaced;
             piecePlacement.SetGameManager(this);
-        }
 
         if (magnetSystem != null)
             magnetSystem.Initialize(this);
 
-        RefreshAllReserveLayouts();
-        BeginPlayerTurn();
-
-        Debug.Log("Game started.");
+        if (IsServer)
+        {
+            StartCoroutine(InitializeOnlineServerAfterDelay());
+        }
+        else
+        {
+            StartCoroutine(RegisterPiecesOnClientAfterDelay());
+        }
     }
 
-    private void OnDestroy()
+    private System.Collections.IEnumerator InitializeOnlineServerAfterDelay()
+    {
+        yield return null;
+        yield return new WaitForSeconds(1f);
+
+        InitializeGameOnlineServer();
+    }
+
+    public override void OnDestroy()
     {
         if (piecePlacement != null)
             piecePlacement.OnPiecePlacedSuccessfully -= HandlePiecePlaced;
+
+        base.OnDestroy();
     }
 
     private void Update()
     {
+        if (IsOnlineGame() && !IsServer)
+            return;
+
         UpdateTurnTimer();
     }
 
@@ -115,9 +187,9 @@ public class GameManager : MonoBehaviour
     }
 
     private void SpawnReservePieces(
-        MagnetPiece.Owner owner,
-        List<MagnetPiece> targetList,
-        ReserveLayout reserveLayout)
+    MagnetPiece.Owner owner,
+    List<MagnetPiece> targetList,
+    ReserveLayout reserveLayout)
     {
         if (reserveLayout == null)
         {
@@ -128,7 +200,36 @@ public class GameManager : MonoBehaviour
         for (int i = 0; i < magnetsPerPlayer; i++)
         {
             MagnetPiece piece = Instantiate(magnetPrefab, Vector3.zero, Quaternion.identity);
-            piece.Initialize(owner);
+
+            if (IsOnlineGame())
+            {
+                if (!IsServer)
+                {
+                    Destroy(piece.gameObject);
+                    return;
+                }
+
+                NetworkObject networkObject = piece.GetComponent<NetworkObject>();
+
+                if (networkObject == null)
+                {
+                    Debug.LogError("Magnet prefab is missing NetworkObject.");
+                    Destroy(piece.gameObject);
+                    return;
+                }
+
+                piece.Initialize(owner);
+
+                Debug.Log($"SERVER SPAWNING {owner} MAGNET");
+
+                networkObject.Spawn(true);
+
+                Debug.Log($"SPAWNED {owner} MAGNET ID: {networkObject.NetworkObjectId}");
+            }
+            else
+            {
+                piece.Initialize(owner);
+            }
 
             targetList.Add(piece);
             reserveLayout.RegisterPiece(piece);
@@ -139,7 +240,7 @@ public class GameManager : MonoBehaviour
     {
         if (IsGameOver())
         {
-            currentState = TurnState.GameOver;
+            SetTurnState(TurnState.GameOver);
             Debug.Log(GetWinnerMessage());
 
             if (gameAudio != null)
@@ -148,24 +249,48 @@ public class GameManager : MonoBehaviour
             return;
         }
 
-        currentState = TurnState.WaitingForPlayerInput;
-        currentTurnTimeRemaining = turnDuration;
+        SetTurnState(TurnState.WaitingForPlayerInput);
+        SetTurnTime(turnDuration);
 
-        Debug.Log($"Turn started: {currentTurn}");
+        Debug.Log($"Turn started: {CurrentTurn}");
+    }
+
+    private void SetTurnState(TurnState newState)
+    {
+        currentState = newState;
+
+        if (IsOnlineGame() && IsServer)
+            networkTurnState.Value = (int)newState;
+    }
+
+    private void SetTurnTime(float time)
+    {
+        currentTurnTimeRemaining = time;
+
+        if (IsOnlineGame() && IsServer)
+            networkTurnTimeRemaining.Value = time;
+    }
+
+    private void SetCurrentTurn(TurnOwner newTurn)
+    {
+        currentTurn = newTurn;
+
+        if (IsOnlineGame() && IsServer)
+            networkCurrentTurnIndex.Value = TurnOwnerToIndex(newTurn);
     }
 
     private void UpdateTurnTimer()
     {
-        if (currentState != TurnState.WaitingForPlayerInput)
+        if (CurrentState != TurnState.WaitingForPlayerInput)
             return;
 
-        currentTurnTimeRemaining -= Time.deltaTime;
+        float newTime = CurrentTurnTimeRemaining - Time.deltaTime;
+        newTime = Mathf.Max(0f, newTime);
 
-        if (currentTurnTimeRemaining <= 0f)
-        {
-            currentTurnTimeRemaining = 0f;
+        SetTurnTime(newTime);
+
+        if (newTime <= 0f)
             HandleTurnTimeout();
-        }
     }
 
     private void HandleTurnTimeout()
@@ -175,7 +300,7 @@ public class GameManager : MonoBehaviour
 
         Debug.Log($"{currentTurn} ran out of time!");
 
-        currentState = TurnState.ResolvingTurn;
+        SetTurnState(TurnState.ResolvingTurn);
 
         if (gameAudio != null)
             gameAudio.PlayTimeout();
@@ -189,7 +314,7 @@ public class GameManager : MonoBehaviour
 
     private void HandlePiecePlaced(MagnetPiece placedPiece)
     {
-        currentState = TurnState.ResolvingTurn;
+        SetTurnState(TurnState.ResolvingTurn);
 
         RefreshReserveLayoutForPiece(placedPiece);
 
@@ -222,9 +347,9 @@ public class GameManager : MonoBehaviour
 
     private void SwitchTurn()
     {
-        int currentIndex = TurnOwnerToIndex(currentTurn);
-        int nextIndex = (currentIndex + 1) % activePlayerCount;
-        currentTurn = IndexToTurnOwner(nextIndex);
+        int currentIndex = TurnOwnerToIndex(CurrentTurn);
+        int nextIndex = (currentIndex + 1) % ActivePlayerCount;
+        SetCurrentTurn(IndexToTurnOwner(nextIndex));
     }
 
     private int TurnOwnerToIndex(TurnOwner owner)
@@ -310,7 +435,7 @@ public class GameManager : MonoBehaviour
 
     private void RefreshAllReserveLayouts()
     {
-        for (int i = 0; i < activePlayerCount; i++)
+        for (int i = 0; i < ActivePlayerCount; i++)
         {
             ReserveLayout layout = GetReserveLayoutByIndex(i);
 
@@ -340,21 +465,54 @@ public class GameManager : MonoBehaviour
         if (piece.PieceState != MagnetPiece.State.Reserve)
             return false;
 
-        MagnetPiece.Owner currentOwner = TurnOwnerToPieceOwner(currentTurn);
+        MagnetPiece.Owner currentOwner = TurnOwnerToPieceOwner(CurrentTurn);
 
-        return piece.PieceOwner == currentOwner;
+        if (piece.PieceOwner != currentOwner)
+            return false;
+
+        if (IsOnlineGame())
+        {
+            MagnetPiece.Owner localOwner = GetLocalNetworkPlayerOwner();
+
+            if (piece.PieceOwner != localOwner)
+                return false;
+        }
+
+        return true;
+    }
+
+    private MagnetPiece.Owner GetLocalNetworkPlayerOwner()
+    {
+        if (!IsOnlineGame())
+            return TurnOwnerToPieceOwner(CurrentTurn);
+
+        int playerIndex = Mathf.Clamp((int)NetworkManager.Singleton.LocalClientId, 0, 3);
+        return (MagnetPiece.Owner)playerIndex;
     }
 
     public int GetReserveCountForPlayer(int playerNumber)
     {
         int index = playerNumber - 1;
 
-        if (index < 0 || index >= activePlayerCount)
+        if (index < 0 || index >= ActivePlayerCount)
             return 0;
 
-        ReserveLayout layout = GetReserveLayoutByIndex(index);
+        MagnetPiece.Owner owner = (MagnetPiece.Owner)index;
+        int count = 0;
 
-        return layout != null ? layout.GetReserveCount() : 0;
+        MagnetPiece[] allPieces = FindObjectsByType<MagnetPiece>(FindObjectsSortMode.None);
+
+        foreach (MagnetPiece piece in allPieces)
+        {
+            if (piece != null &&
+                piece.PieceOwner == owner &&
+                piece.PieceState == MagnetPiece.State.Reserve)
+            {
+                count++;
+            }
+        }
+
+        return count;
     }
 
     public int GetPlayer1ReserveCount()
@@ -523,5 +681,158 @@ public class GameManager : MonoBehaviour
     public void FinishTurnAfterMagnetResolution()
     {
         FinishTurnResolution();
+    }
+
+    private void InitializeGameLocal()
+    {
+        if (hasInitialized)
+            return;
+
+        hasInitialized = true;
+
+        activePlayerCount = 2;
+
+        ApplyArenaSizeForPlayerCount();
+
+        CreateAllPieces();
+
+        if (piecePlacement != null)
+        {
+            piecePlacement.OnPiecePlacedSuccessfully += HandlePiecePlaced;
+            piecePlacement.SetGameManager(this);
+        }
+
+        if (magnetSystem != null)
+            magnetSystem.Initialize(this);
+
+        RefreshAllReserveLayouts();
+        BeginPlayerTurn();
+
+        Debug.Log("Local game started.");
+    }
+
+    private void InitializeGameOnlineServer()
+    {
+        if (hasInitialized)
+            return;
+
+        Debug.Log("ONLINE SERVER INITIALIZE STARTED");
+        hasInitialized = true;
+
+        int connectedPlayers = NetworkManager.Singleton.ConnectedClientsIds.Count;
+        activePlayerCount = Mathf.Clamp(connectedPlayers, 2, 4);
+        networkActivePlayerCount.Value = activePlayerCount;
+
+        networkCurrentTurnIndex.Value = 0;
+        networkTurnState.Value = (int)TurnState.WaitingForPlayerInput;
+        networkTurnTimeRemaining.Value = turnDuration;
+
+        ApplyArenaSizeForPlayerCount();
+
+        CreateAllPieces();
+
+        if (piecePlacement != null)
+        {
+            piecePlacement.OnPiecePlacedSuccessfully += HandlePiecePlaced;
+            piecePlacement.SetGameManager(this);
+        }
+
+        if (magnetSystem != null)
+            magnetSystem.Initialize(this);
+
+        RefreshAllReserveLayouts();
+        BeginPlayerTurn();
+
+        Debug.Log($"Online game started with {activePlayerCount} players.");
+    }
+
+    public void RequestPlacePiece(MagnetPiece piece, Vector3 position)
+    {
+        if (piece == null)
+            return;
+
+        if (!IsOnlineGame())
+            return;
+
+        NetworkObject networkObject = piece.GetComponent<NetworkObject>();
+
+        if (networkObject == null)
+        {
+            Debug.LogError("Placed piece has no NetworkObject.");
+            return;
+        }
+
+        SubmitPlacementServerRpc(networkObject, position);
+    }
+
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    private void SubmitPlacementServerRpc(NetworkObjectReference pieceReference, Vector3 position, RpcParams rpcParams = default)
+    {
+        if (!pieceReference.TryGet(out NetworkObject pieceNetworkObject))
+            return;
+
+        MagnetPiece piece = pieceNetworkObject.GetComponent<MagnetPiece>();
+
+        if (piece == null)
+            return;
+
+        int senderPlayerIndex = Mathf.Clamp((int)rpcParams.Receive.SenderClientId, 0, 3);
+        MagnetPiece.Owner senderOwner = (MagnetPiece.Owner)senderPlayerIndex;
+        MagnetPiece.Owner currentOwner = TurnOwnerToPieceOwner(CurrentTurn);
+
+        if (senderOwner != currentOwner)
+        {
+            Debug.LogWarning($"Rejected placement. Sender {senderOwner}, current turn {currentOwner}");
+            return;
+        }
+
+        if (piece.PieceOwner != senderOwner)
+        {
+            Debug.LogWarning("Rejected placement. Player tried to place someone else's piece.");
+            return;
+        }
+
+        if (piece.PieceState != MagnetPiece.State.Reserve &&
+            piece.PieceState != MagnetPiece.State.Dragging)
+        {
+            Debug.LogWarning("Rejected placement. Piece is not in reserve/dragging state.");
+            return;
+        }
+
+        PlacePieceOnServer(piece, position);
+    }
+
+    private void PlacePieceOnServer(MagnetPiece piece, Vector3 position)
+    {
+       
+
+        piece.transform.position = position;
+        piece.SetPhysicsEnabled(true);
+        piece.SetState(MagnetPiece.State.Placed);
+        piece.gameObject.layer = LayerMask.NameToLayer("PlacedMagnet");
+        piece.ResetVisual();
+
+        if (gameAudio != null)
+            gameAudio.PlayPlace();
+
+        HandlePiecePlaced(piece);
+    }
+
+    private void RegisterExistingNetworkPiecesToLayouts()
+    {
+        MagnetPiece[] allPieces = FindObjectsByType<MagnetPiece>(FindObjectsSortMode.None);
+
+        foreach (MagnetPiece piece in allPieces)
+        {
+            if (piece == null)
+                continue;
+
+            ReserveLayout layout = GetReserveLayoutByOwner(piece.PieceOwner);
+
+            if (layout != null && piece.PieceState == MagnetPiece.State.Reserve)
+                layout.RegisterPiece(piece);
+        }
+
+        RefreshAllReserveLayouts();
     }
 }

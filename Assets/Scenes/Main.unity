@@ -3184,6 +3184,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1881477614}
   - component: {fileID: 1881477615}
+  - component: {fileID: 1881477620}
   - component: {fileID: 1881477616}
   - component: {fileID: 1881477617}
   - component: {fileID: 1881477619}
@@ -3244,6 +3245,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: bdb12f48940d9a94c8f698d691820342, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GameManager
+  ShowTopMostFoldoutHeaderGroup: 1
   piecePlacement: {fileID: 1881477615}
   magnetPrefab: {fileID: 7043466865163358730, guid: ae731d415662fe84691f807f4634bf23, type: 3}
   arenaBounds: {fileID: 1355731813}
@@ -3397,6 +3399,31 @@ AudioSource:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
+--- !u!114 &1881477620
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1881477612}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
+  GlobalObjectIdHash: 1804283842
+  InScenePlacedSourceGlobalObjectIdHash: 0
+  DeferredDespawnTick: 0
+  Ownership: 1
+  AlwaysReplicateAsRoot: 0
+  SynchronizeTransform: 1
+  ActiveSceneSynchronization: 0
+  SceneMigrationSynchronization: 0
+  SpawnWithObservers: 1
+  DontDestroyWithOwner: 0
+  AutoObjectParentSync: 1
+  SyncOwnerTransformWhenParented: 1
+  AllowOwnerToParent: 0
 --- !u!1 &1900973702
 GameObject:
   m_ObjectHideFlags: 0

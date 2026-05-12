@@ -1,6 +1,7 @@
 using System;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using Unity.Netcode.Components;
 
 public class PiecePlacement : MonoBehaviour
 {
@@ -16,7 +17,7 @@ public class PiecePlacement : MonoBehaviour
     [SerializeField] private LayerMask magnetMask;
 
     [Header("Placement")]
-    [SerializeField] private float pieceHeight = 0.15f;
+    [SerializeField] private float pieceHeight = 0.6f;
 
     private int draggableLayer;
     private int placedLayer;
@@ -25,6 +26,9 @@ public class PiecePlacement : MonoBehaviour
     private MagnetPiece draggedPiece;
     private bool isDragging;
     private Vector3 dragStartPosition;
+    private Vector3 currentDragWorldPosition;
+    private bool currentDragIsValid;
+    private NetworkTransform draggedNetworkTransform;
     private GameManager gameManager;
 
     public void SetGameManager(GameManager manager)
@@ -112,10 +116,23 @@ public class PiecePlacement : MonoBehaviour
             draggedPiece = piece;
             isDragging = true;
             dragStartPosition = draggedPiece.transform.position;
+            currentDragWorldPosition = dragStartPosition;
+            currentDragIsValid = false;
+
+            draggedNetworkTransform = draggedPiece.GetComponent<NetworkTransform>();
+
+            if (gameManager != null && gameManager.IsOnlineGame() && draggedNetworkTransform != null)
+            {
+                draggedNetworkTransform.enabled = false;
+            }
 
             draggedPiece.SetPhysicsEnabled(false);
             draggedPiece.SnapUpright();
-            draggedPiece.SetState(MagnetPiece.State.Dragging);
+
+            if (gameManager == null || !gameManager.IsOnlineGame())
+            {
+                draggedPiece.SetState(MagnetPiece.State.Dragging);
+            }
             // 🚫 Disable collision between dragged and placed magnets
             Physics.IgnoreLayerCollision(draggableLayer, placedLayer, true);
 
@@ -134,11 +151,13 @@ public class PiecePlacement : MonoBehaviour
         {
             Vector3 target = hit.point;
             target.y = pieceHeight;
+
+            currentDragWorldPosition = target;
+            currentDragIsValid = arenaBounds.IsInside(target);
+
             draggedPiece.transform.position = target;
 
-            bool isValid = arenaBounds.IsInside(target);
-
-            if (isValid)
+            if (currentDragIsValid)
                 draggedPiece.ShowValidPlacementVisual();
             else
                 draggedPiece.ShowInvalidPlacementVisual();
@@ -159,6 +178,12 @@ public class PiecePlacement : MonoBehaviour
 
         Physics.IgnoreLayerCollision(draggableLayer, placedLayer, false);
 
+        if (draggedNetworkTransform != null)
+        {
+            draggedNetworkTransform.enabled = true;
+            draggedNetworkTransform = null;
+        }
+
         draggedPiece = null;
         isDragging = false;
 
@@ -173,19 +198,38 @@ public class PiecePlacement : MonoBehaviour
             return;
         }
 
-        bool isValidDrop = arenaBounds.IsInside(draggedPiece.transform.position);
+        bool isValidDrop = currentDragIsValid;
+        Vector3 finalDropPosition = currentDragWorldPosition;
 
         if (isValidDrop)
         {
-            draggedPiece.SetPhysicsEnabled(true);
-            draggedPiece.SetState(MagnetPiece.State.Placed);
-            draggedPiece.gameObject.layer = LayerMask.NameToLayer("PlacedMagnet");
             draggedPiece.ResetVisual();
-            if (gameAudio != null)
-                gameAudio.PlayPlace();
 
-            Debug.Log("Released magnet inside arena");
-            OnPiecePlacedSuccessfully?.Invoke(draggedPiece);
+            Physics.IgnoreLayerCollision(draggableLayer, placedLayer, false);
+
+            if (draggedNetworkTransform != null)
+            {
+                draggedNetworkTransform.enabled = true;
+                draggedNetworkTransform = null;
+            }
+
+            if (gameManager != null && gameManager.IsOnlineGame())
+            {
+                gameManager.RequestPlacePiece(draggedPiece, finalDropPosition);
+            }
+            else
+            {
+                draggedPiece.transform.position = finalDropPosition;
+                draggedPiece.SetPhysicsEnabled(true);
+                draggedPiece.SetState(MagnetPiece.State.Placed);
+                draggedPiece.gameObject.layer = LayerMask.NameToLayer("PlacedMagnet");
+
+                if (gameAudio != null)
+                    gameAudio.PlayPlace();
+
+                Debug.Log("Released magnet inside arena");
+                OnPiecePlacedSuccessfully?.Invoke(draggedPiece);
+            }
         }
         else
         {
@@ -201,6 +245,12 @@ public class PiecePlacement : MonoBehaviour
 
             Physics.IgnoreLayerCollision(draggableLayer, placedLayer, false);
 
+            if (draggedNetworkTransform != null)
+            {
+                draggedNetworkTransform.enabled = true;
+                draggedNetworkTransform = null;
+            }
+            
             Debug.Log("Invalid drop - magnet returned");
 
             if (gameManager != null)

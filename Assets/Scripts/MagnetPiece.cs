@@ -1,6 +1,7 @@
+using Unity.Netcode;
 using UnityEngine;
 
-public class MagnetPiece : MonoBehaviour
+public class MagnetPiece : NetworkBehaviour
 {
     public enum Owner
     {
@@ -27,8 +28,21 @@ public class MagnetPiece : MonoBehaviour
     [SerializeField] private Color validDragColor = Color.green;
     [SerializeField] private Color invalidDragColor = Color.red;
 
-    public Owner PieceOwner => owner;
-    public State PieceState => state;
+    private readonly NetworkVariable<int> networkOwner = new(
+        0,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
+
+    private readonly NetworkVariable<int> networkState = new(
+        0,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
+
+    public Owner PieceOwner => IsNetworkActive() ? (Owner)networkOwner.Value : owner;
+    public State PieceState => IsNetworkActive() ? (State)networkState.Value : state;
+    
 
     private void Awake()
     {
@@ -39,10 +53,62 @@ public class MagnetPiece : MonoBehaviour
             pieceRenderer = GetComponentInChildren<Renderer>();
     }
 
+    public override void OnNetworkSpawn()
+    {
+        networkOwner.OnValueChanged += HandleOwnerChanged;
+        networkState.OnValueChanged += HandleStateChanged;
+
+        ApplyNetworkValues();
+
+        if (NetworkManager.Singleton != null &&
+        NetworkManager.Singleton.IsListening &&
+        !NetworkManager.Singleton.IsServer)
+        {
+            SetPhysicsEnabled(false);
+        }
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        networkOwner.OnValueChanged -= HandleOwnerChanged;
+        networkState.OnValueChanged -= HandleStateChanged;
+    }
+
+    private void HandleOwnerChanged(int oldValue, int newValue)
+    {
+        owner = (Owner)newValue;
+    }
+
+    private void HandleStateChanged(int oldValue, int newValue)
+    {
+        state = (State)newValue;
+        ApplyStateVisuals();
+    }
+
+    private void ApplyNetworkValues()
+    {
+        owner = (Owner)networkOwner.Value;
+        state = (State)networkState.Value;
+        ApplyStateVisuals();
+    }
+
+    private bool IsNetworkActive()
+    {
+        return NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening && IsSpawned;
+    }
+
     public void Initialize(Owner newOwner)
     {
         owner = newOwner;
         state = State.Reserve;
+
+        if (NetworkManager.Singleton != null &&
+            NetworkManager.Singleton.IsListening &&
+            NetworkManager.Singleton.IsServer)
+        {
+            networkOwner.Value = (int)newOwner;
+            networkState.Value = (int)State.Reserve;
+        }
 
         gameObject.layer = LayerMask.NameToLayer("DraggableMagnet");
         SnapUpright();
@@ -53,11 +119,39 @@ public class MagnetPiece : MonoBehaviour
     public void SetState(State newState)
     {
         state = newState;
+
+        if (NetworkManager.Singleton != null &&
+            NetworkManager.Singleton.IsListening &&
+            NetworkManager.Singleton.IsServer &&
+            IsSpawned)
+        {
+            networkState.Value = (int)newState;
+        }
+
+        ApplyStateVisuals();
     }
 
     public void SetOwner(Owner newOwner)
     {
         owner = newOwner;
+
+        if (NetworkManager.Singleton != null &&
+            NetworkManager.Singleton.IsListening &&
+            NetworkManager.Singleton.IsServer &&
+            IsSpawned)
+        {
+            networkOwner.Value = (int)newOwner;
+        }
+    }
+
+    private void ApplyStateVisuals()
+    {
+        if (PieceState == State.Placed)
+            gameObject.layer = LayerMask.NameToLayer("PlacedMagnet");
+        else
+            gameObject.layer = LayerMask.NameToLayer("DraggableMagnet");
+
+        ResetVisual();
     }
 
     public void SetPhysicsEnabled(bool enabled)
