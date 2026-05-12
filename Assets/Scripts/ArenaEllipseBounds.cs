@@ -50,4 +50,5 @@ public class ArenaEllipseBounds : MonoBehaviour
 
         return new Vector3(clampedX, worldPosition.y, clampedZ);
     }
+
 }
