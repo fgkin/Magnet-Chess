@@ -14,6 +14,7 @@ public class GameUI : MonoBehaviour
     [SerializeField] private TextMeshProUGUI p2CountText;
     [SerializeField] private TextMeshProUGUI p3CountText;
     [SerializeField] private TextMeshProUGUI p4CountText;
+    [SerializeField] private TextMeshProUGUI localPlayerText;
 
     [Header("Label Backgrounds")]
     [SerializeField] private Image p1LabelBackground;
@@ -50,6 +51,7 @@ public class GameUI : MonoBehaviour
         UpdateTurnTimerBackground();
         UpdateReserveCounts();
         UpdateGameOverUI();
+        UpdateLocalPlayerText();
     }
 
     private void UpdateTurnText()
@@ -196,5 +198,33 @@ public class GameUI : MonoBehaviour
             4 => player4Color,
             _ => Color.white
         };
+    }
+
+    private void UpdateLocalPlayerText()
+    {
+        if (localPlayerText == null)
+            return;
+
+        if (gameManager == null || !gameManager.IsOnlineGame())
+        {
+            localPlayerText.gameObject.SetActive(false);
+            return;
+        }
+
+        localPlayerText.gameObject.SetActive(true);
+
+        int playerNumber = GetLocalPlayerNumber();
+
+        localPlayerText.text = $"YOU ARE P{playerNumber}";
+        localPlayerText.color = GetPlayerColor(playerNumber);
+        localPlayerText.fontStyle = FontStyles.Bold;
+    }
+
+    private int GetLocalPlayerNumber()
+    {
+        if (Unity.Netcode.NetworkManager.Singleton == null)
+            return 1;
+
+        return Mathf.Clamp((int)Unity.Netcode.NetworkManager.Singleton.LocalClientId + 1, 1, 4);
     }
 }
