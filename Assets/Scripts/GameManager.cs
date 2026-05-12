@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System.Collections;
+using UnityEngine.SceneManagement;
 using Unity.Netcode;
 using UnityEngine;
 
@@ -19,6 +21,13 @@ public class GameManager : NetworkBehaviour
         GameOver
     }
 
+    private readonly NetworkVariable<bool> networkIsPaused = new(
+    false,
+    NetworkVariableReadPermission.Everyone,
+    NetworkVariableWritePermission.Server
+    );
+
+    private bool isEndingOnlineGame;
     private readonly NetworkVariable<int> networkCurrentTurnIndex = new(
     0,
     NetworkVariableReadPermission.Everyone,
@@ -132,6 +141,9 @@ public class GameManager : NetworkBehaviour
         if (!IsOnlineGame())
             return;
 
+        if (NetworkManager.Singleton != null)
+        NetworkManager.Singleton.OnClientDisconnectCallback += HandleClientDisconnected;
+
         if (piecePlacement != null)
             piecePlacement.SetGameManager(this);
 
@@ -160,6 +172,9 @@ public class GameManager : NetworkBehaviour
     {
         if (piecePlacement != null)
             piecePlacement.OnPiecePlacedSuccessfully -= HandlePiecePlaced;
+
+        if (NetworkManager.Singleton != null)
+            NetworkManager.Singleton.OnClientDisconnectCallback -= HandleClientDisconnected;
 
         base.OnDestroy();
     }
@@ -281,6 +296,9 @@ public class GameManager : NetworkBehaviour
 
     private void UpdateTurnTimer()
     {
+        if (IsGamePaused)
+        return;
+
         if (CurrentState != TurnState.WaitingForPlayerInput)
             return;
 
@@ -451,7 +469,10 @@ public class GameManager : NetworkBehaviour
 
     public bool CanPlayerInteract()
     {
-        return currentState == TurnState.WaitingForPlayerInput;
+        if (IsGamePaused)
+            return false;
+
+        return CurrentState == TurnState.WaitingForPlayerInput;
     }
 
     public bool CanCurrentPlayerDrag(MagnetPiece piece)
@@ -726,6 +747,7 @@ public class GameManager : NetworkBehaviour
         networkCurrentTurnIndex.Value = 0;
         networkTurnState.Value = (int)TurnState.WaitingForPlayerInput;
         networkTurnTimeRemaining.Value = turnDuration;
+        networkIsPaused.Value = false;
 
         ApplyArenaSizeForPlayerCount();
 
@@ -834,5 +856,129 @@ public class GameManager : NetworkBehaviour
         }
 
         RefreshAllReserveLayouts();
+    }
+
+    public bool IsGamePaused
+    {
+        get
+        {
+            if (IsOnlineGame())
+                return networkIsPaused.Value;
+
+            return Time.timeScale == 0f;
+        }
+    }
+
+    public void RequestSetPause(bool paused)
+    {
+        if (!IsOnlineGame())
+        {
+            Time.timeScale = paused ? 0f : 1f;
+            return;
+        }
+
+        if (IsServer)
+        {
+            SetPausedOnServer(paused);
+        }
+        else
+        {
+            SetPausedRpc(paused);
+        }
+    }
+
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    private void SetPausedRpc(bool paused)
+    {
+        SetPausedOnServer(paused);
+    }
+
+    private void SetPausedOnServer(bool paused)
+    {
+        if (!IsServer)
+            return;
+
+        networkIsPaused.Value = paused;
+    }
+
+    public void RequestLeaveOrEndOnlineGame()
+    {
+        if (!IsOnlineGame())
+        {
+            Time.timeScale = 1f;
+            SceneManager.LoadScene("MainMenu");
+            return;
+        }
+
+        if (IsServer)
+        {
+            EndOnlineGameForEveryone();
+        }
+        else
+        {
+            LeaveOnlineGameClientSide();
+        }
+    }
+
+    private void LeaveOnlineGameClientSide()
+    {
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
+            NetworkManager.Singleton.Shutdown();
+
+        Time.timeScale = 1f;
+        SceneManager.LoadScene("MainMenu");
+    }
+
+    private void EndOnlineGameForEveryone()
+    {
+        if (isEndingOnlineGame)
+            return;
+
+        isEndingOnlineGame = true;
+
+        ReturnToMainMenuRpc();
+
+        StartCoroutine(ShutdownNetworkAfterDelay());
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void ReturnToMainMenuRpc()
+    {
+        StartCoroutine(ReturnToMainMenuRoutine());
+    }
+
+    private IEnumerator ReturnToMainMenuRoutine()
+    {
+        yield return null;
+
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
+            NetworkManager.Singleton.Shutdown();
+
+        Time.timeScale = 1f;
+        SceneManager.LoadScene("MainMenu");
+    }
+
+    private IEnumerator ShutdownNetworkAfterDelay()
+    {
+        yield return new WaitForSecondsRealtime(0.2f);
+
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
+            NetworkManager.Singleton.Shutdown();
+    }
+
+    private void HandleClientDisconnected(ulong clientId)
+    {
+        if (!IsServer)
+            return;
+
+        if (isEndingOnlineGame)
+            return;
+
+        if (!IsOnlineGame())
+            return;
+
+        Debug.Log($"Client {clientId} disconnected. Ending online game for everyone.");
+
+        EndOnlineGameForEveryone();
     }
 }
