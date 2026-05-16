@@ -3473,7 +3473,7 @@ MonoBehaviour:
   turnDuration: 10
   currentTurnTimeRemaining: 0
   activePlayerCount: 4
-  magnetsPerPlayer: 6
+  magnetsPerPlayer: 1
   visibleArena: {fileID: 1355731812}
   arenaRadiiFor2Players: {x: 4, y: 2}
   arenaRadiiFor3Players: {x: 4.2, y: 2.1}

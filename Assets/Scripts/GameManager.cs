@@ -21,6 +21,12 @@ public class GameManager : NetworkBehaviour
         GameOver
     }
 
+    private readonly NetworkVariable<int> networkWinnerCode = new(
+    0,
+    NetworkVariableReadPermission.Everyone,
+    NetworkVariableWritePermission.Server
+    );
+
     private readonly NetworkVariable<bool> networkIsPaused = new(
     false,
     NetworkVariableReadPermission.Everyone,
@@ -255,6 +261,7 @@ public class GameManager : NetworkBehaviour
     {
         if (IsGameOver())
         {
+            SetWinnerCode();
             SetTurnState(TurnState.GameOver);
             Debug.Log(GetWinnerMessage());
 
@@ -350,7 +357,9 @@ public class GameManager : NetworkBehaviour
     {
         if (IsGameOver())
         {
-            currentState = TurnState.GameOver;
+            SetWinnerCode();
+            SetTurnState(TurnState.GameOver);
+
             Debug.Log(GetWinnerMessage());
 
             if (gameAudio != null)
@@ -361,6 +370,35 @@ public class GameManager : NetworkBehaviour
 
         SwitchTurn();
         BeginPlayerTurn();
+    }
+
+    private void SetWinnerCode()
+    {
+        int emptyCount = 0;
+        int winningPlayerNumber = 0;
+
+        for (int i = 0; i < ActivePlayerCount; i++)
+        {
+            int playerNumber = i + 1;
+
+            if (GetReserveCountForPlayer(playerNumber) == 0)
+            {
+                emptyCount++;
+                winningPlayerNumber = playerNumber;
+            }
+        }
+
+        int winnerCode;
+
+        if (emptyCount == 0)
+            winnerCode = 0;
+        else if (emptyCount > 1)
+            winnerCode = -1;
+        else
+            winnerCode = winningPlayerNumber;
+
+        if (IsOnlineGame() && IsServer)
+            networkWinnerCode.Value = winnerCode;
     }
 
     private void SwitchTurn()
@@ -588,12 +626,25 @@ public class GameManager : NetworkBehaviour
 
     public string GetWinnerUILabel()
     {
+        if (IsOnlineGame())
+        {
+            int code = networkWinnerCode.Value;
+
+            if (code == 0)
+                return "";
+
+            if (code == -1)
+                return "Draw!";
+
+            return $"P{code} Wins!";
+        }
+
         List<string> winners = new();
 
-        for (int i = 0; i < activePlayerCount; i++)
+        for (int i = 0; i < ActivePlayerCount; i++)
         {
             if (GetReserveCountForPlayer(i + 1) == 0)
-                winners.Add($"Player {i + 1}");
+                winners.Add($"P{i + 1}");
         }
 
         if (winners.Count == 0)
@@ -747,7 +798,9 @@ public class GameManager : NetworkBehaviour
         networkCurrentTurnIndex.Value = 0;
         networkTurnState.Value = (int)TurnState.WaitingForPlayerInput;
         networkTurnTimeRemaining.Value = turnDuration;
+        networkActivePlayerCount.Value = activePlayerCount;
         networkIsPaused.Value = false;
+        networkWinnerCode.Value = 0;
 
         ApplyArenaSizeForPlayerCount();
 
