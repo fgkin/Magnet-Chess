@@ -27,6 +27,16 @@ public class GameManager : NetworkBehaviour
     NetworkVariableWritePermission.Server
     );
 
+    private readonly NetworkVariable<int> networkPauseCountdown = new(
+    0,
+    NetworkVariableReadPermission.Everyone,
+    NetworkVariableWritePermission.Server
+    );
+
+    private Coroutine resumeCountdownRoutine;
+    public int PauseCountdown =>
+    IsOnlineGame() ? networkPauseCountdown.Value : 0;
+
     private bool isEndingOnlineGame;
     private readonly NetworkVariable<int> networkCurrentTurnIndex = new(
     0,
@@ -748,6 +758,8 @@ public class GameManager : NetworkBehaviour
         networkTurnState.Value = (int)TurnState.WaitingForPlayerInput;
         networkTurnTimeRemaining.Value = turnDuration;
         networkIsPaused.Value = false;
+        networkWinnerCode.Value = 0;
+        networkPauseCountdown.Value = 0;
 
         ApplyArenaSizeForPlayerCount();
 
@@ -879,7 +891,10 @@ public class GameManager : NetworkBehaviour
 
         if (IsServer)
         {
-            SetPausedOnServer(paused);
+            if (paused)
+                SetPausedOnServer(true);
+            else
+                StartResumeCountdownOnServer();
         }
         else
         {
@@ -890,7 +905,10 @@ public class GameManager : NetworkBehaviour
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     private void SetPausedRpc(bool paused)
     {
-        SetPausedOnServer(paused);
+        if (paused)
+            SetPausedOnServer(true);
+        else
+            StartResumeCountdownOnServer();
     }
 
     private void SetPausedOnServer(bool paused)
@@ -899,6 +917,45 @@ public class GameManager : NetworkBehaviour
             return;
 
         networkIsPaused.Value = paused;
+
+        if (paused)
+        {
+            networkPauseCountdown.Value = 0;
+
+            if (resumeCountdownRoutine != null)
+            {
+                StopCoroutine(resumeCountdownRoutine);
+                resumeCountdownRoutine = null;
+            }
+        }
+    }
+
+    private void StartResumeCountdownOnServer()
+    {
+        if (!IsServer)
+            return;
+
+        if (resumeCountdownRoutine != null)
+            StopCoroutine(resumeCountdownRoutine);
+
+        resumeCountdownRoutine = StartCoroutine(ResumeCountdownRoutine());
+    }
+
+    private IEnumerator ResumeCountdownRoutine()
+    {
+        networkPauseCountdown.Value = 3;
+
+        yield return new WaitForSecondsRealtime(1f);
+        networkPauseCountdown.Value = 2;
+
+        yield return new WaitForSecondsRealtime(1f);
+        networkPauseCountdown.Value = 1;
+
+        yield return new WaitForSecondsRealtime(1f);
+        networkPauseCountdown.Value = 0;
+
+        SetPausedOnServer(false);
+        resumeCountdownRoutine = null;
     }
 
     public void RequestLeaveOrEndOnlineGame()
@@ -912,10 +969,12 @@ public class GameManager : NetworkBehaviour
 
         if (IsServer)
         {
+            // Host is the server. If host leaves, everyone must leave.
             EndOnlineGameForEveryone();
         }
         else
         {
+            // Client leaves alone. Other players keep playing.
             LeaveOnlineGameClientSide();
         }
     }
@@ -923,7 +982,9 @@ public class GameManager : NetworkBehaviour
     private void LeaveOnlineGameClientSide()
     {
         if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
+        {
             NetworkManager.Singleton.Shutdown();
+        }
 
         Time.timeScale = 1f;
         SceneManager.LoadScene("MainMenu");
@@ -941,6 +1002,7 @@ public class GameManager : NetworkBehaviour
         StartCoroutine(ShutdownNetworkAfterDelay());
     }
 
+
     [Rpc(SendTo.ClientsAndHost)]
     private void ReturnToMainMenuRpc()
     {
@@ -952,7 +1014,9 @@ public class GameManager : NetworkBehaviour
         yield return null;
 
         if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
+        {
             NetworkManager.Singleton.Shutdown();
+        }
 
         Time.timeScale = 1f;
         SceneManager.LoadScene("MainMenu");
@@ -963,7 +1027,9 @@ public class GameManager : NetworkBehaviour
         yield return new WaitForSecondsRealtime(0.2f);
 
         if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
+        {
             NetworkManager.Singleton.Shutdown();
+        }
     }
 
     private void HandleClientDisconnected(ulong clientId)
