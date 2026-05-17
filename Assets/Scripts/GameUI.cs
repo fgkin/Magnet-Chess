@@ -40,6 +40,7 @@ public class GameUI : MonoBehaviour
     [SerializeField] private TextMeshProUGUI gameOverText;
     [SerializeField] private Button restartButton;
     [SerializeField] private Button mainMenuButton;
+    [SerializeField] private TextMeshProUGUI restartVoteText;
 
     private void Update()
     {
@@ -174,6 +175,18 @@ public class GameUI : MonoBehaviour
 
         if (mainMenuButton != null)
             mainMenuButton.gameObject.SetActive(isGameOver);
+
+        if (restartVoteText != null)
+        {
+            bool showVoteText = isGameOver && gameManager.IsOnlineGame();
+            restartVoteText.gameObject.SetActive(showVoteText);
+
+            if (showVoteText)
+            {
+                restartVoteText.text =
+                    $"Restart votes: {gameManager.RestartVoteCount}/{gameManager.RestartRequiredCount}";
+            }
+        }
     }
 
     private int GetCurrentPlayerNumber()
@@ -222,9 +235,9 @@ public class GameUI : MonoBehaviour
 
     private int GetLocalPlayerNumber()
     {
-        if (Unity.Netcode.NetworkManager.Singleton == null)
+        if (gameManager == null)
             return 1;
 
-        return Mathf.Clamp((int)Unity.Netcode.NetworkManager.Singleton.LocalClientId + 1, 1, 4);
+        return gameManager.GetLocalPlayerNumber();
     }
 }
