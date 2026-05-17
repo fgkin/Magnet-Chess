@@ -70,6 +70,8 @@ public class MultiplayerLobbyManager : MonoBehaviour
 
     public async void CreateLobby()
     {
+        await CleanupBeforeNewSession();
+
         if (hasCreatedOrJoinedLobby)
         {
             SetStatus("Switching lobby...");
@@ -117,6 +119,7 @@ public class MultiplayerLobbyManager : MonoBehaviour
                 options
             );
 
+            MultiplayerSessionData.SetLobby(currentLobby.Id, true);
             SetLobbyCode(currentLobby.LobbyCode);
             SetPlayerCount(currentLobby.Players.Count);
             SetStatus("Lobby created. Share the code with other players.");
@@ -141,6 +144,8 @@ public class MultiplayerLobbyManager : MonoBehaviour
             return;
         }
 
+        await CleanupBeforeNewSession();
+
         if (hasCreatedOrJoinedLobby)
         {
             SetStatus("Switching lobby...");
@@ -161,6 +166,7 @@ public class MultiplayerLobbyManager : MonoBehaviour
             SetStatus("Joining Lobby...");
 
             currentLobby = await LobbyService.Instance.JoinLobbyByCodeAsync(lobbyCode);
+            MultiplayerSessionData.SetLobby(currentLobby.Id, false);
 
             string relayJoinCode = currentLobby.Data[RelayJoinCodeKey].Value;
 
@@ -193,30 +199,36 @@ public class MultiplayerLobbyManager : MonoBehaviour
         }
     }
 
+    private async Task CleanupBeforeNewSession()
+    {
+        SetStatus("Cleaning previous session...");
+
+        if (currentLobby != null || MultiplayerSessionData.InLobby)
+        {
+            await LeaveCurrentLobby();
+        }
+
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
+        {
+            NetworkManager.Singleton.Shutdown();
+            await Task.Delay(500);
+        }
+
+        hasCreatedOrJoinedLobby = false;
+    }
+
     private async Task LeaveCurrentLobby()
     {
         try
         {
-            Lobby lobbyToLeave = currentLobby;
+            await MultiplayerSessionData.LeaveLobbyIfNeeded();
+
             currentLobby = null;
-
-            if (lobbyToLeave != null)
-            {
-                string playerId = AuthenticationService.Instance.PlayerId;
-
-                if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsHost)
-                {
-                    await LobbyService.Instance.DeleteLobbyAsync(lobbyToLeave.Id);
-                }
-                else
-                {
-                    await LobbyService.Instance.RemovePlayerAsync(lobbyToLeave.Id, playerId);
-                }
-            }
 
             if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
             {
                 NetworkManager.Singleton.Shutdown();
+                await Task.Delay(500);
             }
 
             hasCreatedOrJoinedLobby = false;
@@ -226,22 +238,20 @@ public class MultiplayerLobbyManager : MonoBehaviour
             SetLobbyCode("-");
             SetPlayerCount(0);
         }
-
         catch (Exception e)
         {
             Debug.LogWarning("Leave lobby failed: " + e.Message);
 
             currentLobby = null;
+            MultiplayerSessionData.Clear();
 
             if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
             {
                 NetworkManager.Singleton.Shutdown();
+                await Task.Delay(500);
             }
 
             hasCreatedOrJoinedLobby = false;
-            heartbeatTimer = 0f;
-            pollTimer = 0f;
-
             SetLobbyCode("-");
             SetPlayerCount(0);
         }

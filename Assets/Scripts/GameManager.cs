@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Collections;
 using UnityEngine.SceneManagement;
 using Unity.Netcode;
+using System.Threading.Tasks;
 using UnityEngine;
 
 public class GameManager : NetworkBehaviour
@@ -21,17 +22,64 @@ public class GameManager : NetworkBehaviour
         GameOver
     }
 
+    private readonly NetworkVariable<bool> networkIsPaused = new(
+    false,
+    NetworkVariableReadPermission.Everyone,
+    NetworkVariableWritePermission.Server
+    );
+
     private readonly NetworkVariable<int> networkWinnerCode = new(
     0,
     NetworkVariableReadPermission.Everyone,
     NetworkVariableWritePermission.Server
     );
 
-    private readonly NetworkVariable<bool> networkIsPaused = new(
-    false,
+    private readonly NetworkVariable<int> networkPauseCountdown = new(
+    0,
     NetworkVariableReadPermission.Everyone,
     NetworkVariableWritePermission.Server
     );
+    private readonly NetworkVariable<int> networkRestartVoteMask = new(
+    0,
+    NetworkVariableReadPermission.Everyone,
+    NetworkVariableWritePermission.Server
+    );
+
+    private readonly NetworkVariable<int> networkRestartRequiredMask = new(
+        0,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
+
+    private readonly NetworkVariable<ulong> networkP1ClientId = new(
+    ulong.MaxValue,
+    NetworkVariableReadPermission.Everyone,
+    NetworkVariableWritePermission.Server
+    );
+
+    private readonly NetworkVariable<ulong> networkP2ClientId = new(
+        ulong.MaxValue,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
+
+    private readonly NetworkVariable<ulong> networkP3ClientId = new(
+        ulong.MaxValue,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
+
+    private readonly NetworkVariable<ulong> networkP4ClientId = new(
+        ulong.MaxValue,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
+    public int RestartVoteCount => CountBits(networkRestartVoteMask.Value);
+    public int RestartRequiredCount => CountBits(networkRestartRequiredMask.Value);
+
+    private Coroutine resumeCountdownRoutine;
+    public int PauseCountdown =>
+        IsOnlineGame() ? networkPauseCountdown.Value : 0;
 
     private bool isEndingOnlineGame;
     private readonly NetworkVariable<int> networkCurrentTurnIndex = new(
@@ -125,6 +173,8 @@ public class GameManager : NetworkBehaviour
     {
         return NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening;
     }
+    private bool isLeavingGame;
+    public bool IsLeavingGame => isLeavingGame;
 
     private System.Collections.IEnumerator RegisterPiecesOnClientAfterDelay()
     {
@@ -187,6 +237,9 @@ public class GameManager : NetworkBehaviour
 
     private void Update()
     {
+        if (isLeavingGame)
+            return;
+
         if (IsOnlineGame() && !IsServer)
             return;
 
@@ -259,9 +312,11 @@ public class GameManager : NetworkBehaviour
 
     private void BeginPlayerTurn()
     {
+        if (isLeavingGame)
+            return;
+
         if (IsGameOver())
         {
-            SetWinnerCode();
             SetTurnState(TurnState.GameOver);
             Debug.Log(GetWinnerMessage());
 
@@ -355,9 +410,19 @@ public class GameManager : NetworkBehaviour
 
     private void FinishTurnResolution()
     {
+        if (isLeavingGame)
+            return;
+        
         if (IsGameOver())
         {
             SetWinnerCode();
+
+            if (IsOnlineGame() && IsServer)
+            {
+                SetRestartRequiredMask();
+                networkRestartVoteMask.Value = 0;
+            }
+
             SetTurnState(TurnState.GameOver);
 
             Debug.Log(GetWinnerMessage());
@@ -372,33 +437,89 @@ public class GameManager : NetworkBehaviour
         BeginPlayerTurn();
     }
 
-    private void SetWinnerCode()
+    private void SetRestartRequiredMask()
     {
-        int emptyCount = 0;
-        int winningPlayerNumber = 0;
+        if (!IsServer)
+            return;
+
+        int mask = 0;
 
         for (int i = 0; i < ActivePlayerCount; i++)
         {
-            int playerNumber = i + 1;
-
-            if (GetReserveCountForPlayer(playerNumber) == 0)
-            {
-                emptyCount++;
-                winningPlayerNumber = playerNumber;
-            }
+            mask |= 1 << i;
         }
 
-        int winnerCode;
+        networkRestartRequiredMask.Value = mask;
+    }
 
-        if (emptyCount == 0)
-            winnerCode = 0;
-        else if (emptyCount > 1)
-            winnerCode = -1;
+    public void RequestRestartGame()
+    {
+        if (!IsOnlineGame())
+        {
+            Time.timeScale = 1f;
+            SceneManager.LoadScene("Main");
+            return;
+        }
+
+        if (IsServer)
+        {
+            RegisterRestartVote(NetworkManager.Singleton.LocalClientId);
+        }
         else
-            winnerCode = winningPlayerNumber;
+        {
+            RestartVoteRpc();
+        }
+    }
 
-        if (IsOnlineGame() && IsServer)
-            networkWinnerCode.Value = winnerCode;
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    private void RestartVoteRpc(RpcParams rpcParams = default)
+    {
+        RegisterRestartVote(rpcParams.Receive.SenderClientId);
+    }
+
+    private void RegisterRestartVote(ulong clientId)
+    {
+        if (!IsServer)
+            return;
+
+        if (CurrentState != TurnState.GameOver)
+            return;
+
+        int playerIndex = GetPlayerIndexForClientId(clientId);
+
+        if (playerIndex < 0)
+        {
+            Debug.LogWarning("Restart vote ignored. Client is not assigned to a player slot.");
+            return;
+        }
+        int voteBit = 1 << playerIndex;
+
+        networkRestartVoteMask.Value |= voteBit;
+
+        Debug.Log($"P{playerIndex + 1} voted restart. Votes: {RestartVoteCount}/{RestartRequiredCount}");
+
+        if ((networkRestartVoteMask.Value & networkRestartRequiredMask.Value) == networkRestartRequiredMask.Value)
+        {
+            RestartOnlineGameForEveryone();
+        }
+    }
+
+    private void RestartOnlineGameForEveryone()
+    {
+        if (!IsServer)
+            return;
+
+        networkRestartVoteMask.Value = 0;
+        networkRestartRequiredMask.Value = 0;
+
+        if (IsOnlineGame())
+        {
+            networkWinnerCode.Value = 0;
+            networkIsPaused.Value = false;
+            networkPauseCountdown.Value = 0;
+        }
+
+        NetworkManager.Singleton.SceneManager.LoadScene("Main", LoadSceneMode.Single);
     }
 
     private void SwitchTurn()
@@ -507,6 +628,9 @@ public class GameManager : NetworkBehaviour
 
     public bool CanPlayerInteract()
     {
+        if (isLeavingGame)
+            return false;
+
         if (IsGamePaused)
             return false;
 
@@ -545,7 +669,14 @@ public class GameManager : NetworkBehaviour
         if (!IsOnlineGame())
             return TurnOwnerToPieceOwner(CurrentTurn);
 
-        int playerIndex = Mathf.Clamp((int)NetworkManager.Singleton.LocalClientId, 0, 3);
+        if (NetworkManager.Singleton == null)
+            return MagnetPiece.Owner.Player1;
+
+        int playerIndex = GetPlayerIndexForClientId(NetworkManager.Singleton.LocalClientId);
+
+        if (playerIndex < 0)
+            return MagnetPiece.Owner.Player1;
+
         return (MagnetPiece.Owner)playerIndex;
     }
 
@@ -795,12 +926,16 @@ public class GameManager : NetworkBehaviour
         activePlayerCount = Mathf.Clamp(connectedPlayers, 2, 4);
         networkActivePlayerCount.Value = activePlayerCount;
 
+        AssignNetworkPlayerSlots();
+
         networkCurrentTurnIndex.Value = 0;
         networkTurnState.Value = (int)TurnState.WaitingForPlayerInput;
         networkTurnTimeRemaining.Value = turnDuration;
-        networkActivePlayerCount.Value = activePlayerCount;
         networkIsPaused.Value = false;
         networkWinnerCode.Value = 0;
+        networkPauseCountdown.Value = 0;
+        networkRestartVoteMask.Value = 0;
+        networkRestartRequiredMask.Value = 0;
 
         ApplyArenaSizeForPlayerCount();
 
@@ -851,7 +986,13 @@ public class GameManager : NetworkBehaviour
         if (piece == null)
             return;
 
-        int senderPlayerIndex = Mathf.Clamp((int)rpcParams.Receive.SenderClientId, 0, 3);
+        int senderPlayerIndex = GetPlayerIndexForClientId(rpcParams.Receive.SenderClientId);
+
+        if (senderPlayerIndex < 0)
+        {
+            Debug.LogWarning("Rejected placement. Sender is not assigned to a player slot.");
+            return;
+        }
         MagnetPiece.Owner senderOwner = (MagnetPiece.Owner)senderPlayerIndex;
         MagnetPiece.Owner currentOwner = TurnOwnerToPieceOwner(CurrentTurn);
 
@@ -932,7 +1073,10 @@ public class GameManager : NetworkBehaviour
 
         if (IsServer)
         {
-            SetPausedOnServer(paused);
+            if (paused)
+                SetPausedOnServer(true);
+            else
+                StartResumeCountdownOnServer();
         }
         else
         {
@@ -943,7 +1087,10 @@ public class GameManager : NetworkBehaviour
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     private void SetPausedRpc(bool paused)
     {
-        SetPausedOnServer(paused);
+        if (paused)
+            SetPausedOnServer(true);
+        else
+            StartResumeCountdownOnServer();
     }
 
     private void SetPausedOnServer(bool paused)
@@ -952,6 +1099,45 @@ public class GameManager : NetworkBehaviour
             return;
 
         networkIsPaused.Value = paused;
+
+        if (paused)
+        {
+            networkPauseCountdown.Value = 0;
+
+            if (resumeCountdownRoutine != null)
+            {
+                StopCoroutine(resumeCountdownRoutine);
+                resumeCountdownRoutine = null;
+            }
+        }
+    }
+
+    private void StartResumeCountdownOnServer()
+    {
+        if (!IsServer)
+            return;
+
+        if (resumeCountdownRoutine != null)
+            StopCoroutine(resumeCountdownRoutine);
+
+        resumeCountdownRoutine = StartCoroutine(ResumeCountdownRoutine());
+    }
+
+    private IEnumerator ResumeCountdownRoutine()
+    {
+        networkPauseCountdown.Value = 3;
+
+        yield return new WaitForSecondsRealtime(1f);
+        networkPauseCountdown.Value = 2;
+
+        yield return new WaitForSecondsRealtime(1f);
+        networkPauseCountdown.Value = 1;
+
+        yield return new WaitForSecondsRealtime(1f);
+        networkPauseCountdown.Value = 0;
+
+        SetPausedOnServer(false);
+        resumeCountdownRoutine = null;
     }
 
     public void RequestLeaveOrEndOnlineGame()
@@ -969,16 +1155,24 @@ public class GameManager : NetworkBehaviour
         }
         else
         {
-            LeaveOnlineGameClientSide();
+            _ = LeaveOnlineGameClientSide();
         }
     }
 
-    private void LeaveOnlineGameClientSide()
+    private async Task LeaveOnlineGameClientSide()
     {
-        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
-            NetworkManager.Singleton.Shutdown();
+        isLeavingGame = true;
+
+        await MultiplayerSessionData.LeaveLobbyIfNeeded();
 
         Time.timeScale = 1f;
+
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
+        {
+            NetworkManager.Singleton.Shutdown();
+            await Task.Delay(500);
+        }
+
         SceneManager.LoadScene("MainMenu");
     }
 
@@ -989,34 +1183,57 @@ public class GameManager : NetworkBehaviour
 
         isEndingOnlineGame = true;
 
-        ReturnToMainMenuRpc();
+        // Tell clients first.
+        ReturnClientsToMainMenuRpc();
 
-        StartCoroutine(ShutdownNetworkAfterDelay());
+        // Host waits briefly so the RPC can actually reach clients.
+        StartCoroutine(HostReturnToMainMenuAfterDelay());
     }
+
 
     [Rpc(SendTo.ClientsAndHost)]
-    private void ReturnToMainMenuRpc()
+    private void ReturnClientsToMainMenuRpc()
     {
-        StartCoroutine(ReturnToMainMenuRoutine());
+        // Host handles itself in HostReturnToMainMenuAfterDelay.
+        // This prevents host from shutting down before clients receive the RPC.
+        if (IsServer)
+            return;
+
+        StartCoroutine(ClientReturnToMainMenuRoutine());
     }
 
-    private IEnumerator ReturnToMainMenuRoutine()
+    private IEnumerator ClientReturnToMainMenuRoutine()
     {
         yield return null;
 
         if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
+        {
             NetworkManager.Singleton.Shutdown();
+        }
+
+        MultiplayerSessionData.Clear();
 
         Time.timeScale = 1f;
         SceneManager.LoadScene("MainMenu");
     }
 
-    private IEnumerator ShutdownNetworkAfterDelay()
+
+    private IEnumerator HostReturnToMainMenuAfterDelay()
     {
+        // Give the RPC time to be sent to clients.
+        yield return new WaitForSecondsRealtime(0.5f);
+
+        _ = MultiplayerSessionData.LeaveLobbyIfNeeded();
+
         yield return new WaitForSecondsRealtime(0.2f);
 
         if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
+        {
             NetworkManager.Singleton.Shutdown();
+        }
+
+        Time.timeScale = 1f;
+        SceneManager.LoadScene("MainMenu");
     }
 
     private void HandleClientDisconnected(ulong clientId)
@@ -1027,11 +1244,98 @@ public class GameManager : NetworkBehaviour
         if (isEndingOnlineGame)
             return;
 
-        if (!IsOnlineGame())
+        Debug.Log($"Client {clientId} disconnected. Game continues.");
+    }
+
+    private int CountBits(int value)
+    {
+        int count = 0;
+
+        while (value != 0)
+        {
+            count += value & 1;
+            value >>= 1;
+        }
+
+        return count;
+    }
+
+    private void SetWinnerCode()
+    {
+        int emptyCount = 0;
+        int winningPlayerNumber = 0;
+
+        for (int i = 0; i < ActivePlayerCount; i++)
+        {
+            int playerNumber = i + 1;
+
+            if (GetReserveCountForPlayer(playerNumber) == 0)
+            {
+                emptyCount++;
+                winningPlayerNumber = playerNumber;
+            }
+        }
+
+        int winnerCode;
+
+        if (emptyCount == 0)
+            winnerCode = 0;
+        else if (emptyCount > 1)
+            winnerCode = -1;
+        else
+            winnerCode = winningPlayerNumber;
+
+        if (IsOnlineGame() && IsServer)
+            networkWinnerCode.Value = winnerCode;
+    }
+
+    private void AssignNetworkPlayerSlots()
+    {
+        if (!IsServer)
             return;
 
-        Debug.Log($"Client {clientId} disconnected. Ending online game for everyone.");
+        List<ulong> clientIds = new List<ulong>(NetworkManager.Singleton.ConnectedClientsIds);
+        clientIds.Sort();
 
-        EndOnlineGameForEveryone();
+        networkP1ClientId.Value = clientIds.Count > 0 ? clientIds[0] : ulong.MaxValue;
+        networkP2ClientId.Value = clientIds.Count > 1 ? clientIds[1] : ulong.MaxValue;
+        networkP3ClientId.Value = clientIds.Count > 2 ? clientIds[2] : ulong.MaxValue;
+        networkP4ClientId.Value = clientIds.Count > 3 ? clientIds[3] : ulong.MaxValue;
+
+        Debug.Log($"Player slots assigned: P1={networkP1ClientId.Value}, P2={networkP2ClientId.Value}, P3={networkP3ClientId.Value}, P4={networkP4ClientId.Value}");
     }
+
+    private int GetPlayerIndexForClientId(ulong clientId)
+    {
+        if (networkP1ClientId.Value == clientId)
+            return 0;
+
+        if (networkP2ClientId.Value == clientId)
+            return 1;
+
+        if (networkP3ClientId.Value == clientId)
+            return 2;
+
+        if (networkP4ClientId.Value == clientId)
+            return 3;
+
+        return -1;
+    }
+
+    public int GetLocalPlayerNumber()
+    {
+        if (!IsOnlineGame())
+            return TurnOwnerToIndex(CurrentTurn) + 1;
+
+        if (NetworkManager.Singleton == null)
+            return 1;
+
+        int playerIndex = GetPlayerIndexForClientId(NetworkManager.Singleton.LocalClientId);
+
+        if (playerIndex < 0)
+            return 1;
+
+        return playerIndex + 1;
+    }
+
 }
