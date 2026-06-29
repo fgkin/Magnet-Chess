@@ -184,7 +184,7 @@ public class GameUI : MonoBehaviour
             if (showVoteText)
             {
                 restartVoteText.text =
-                    $"Restart votes: {gameManager.RestartVoteCount}/{gameManager.RestartRequiredCount}";
+                    $"Tekrar Oyna: {gameManager.RestartVoteCount}/{gameManager.RestartRequiredCount}";
             }
         }
     }
