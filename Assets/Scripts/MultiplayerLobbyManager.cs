@@ -32,6 +32,40 @@ public class MultiplayerLobbyManager : MonoBehaviour
 
     private const string RelayJoinCodeKey = "RelayJoinCode";
 
+    private const string ReadyKey = "Ready";
+
+    [SerializeField] private MainMenuNavigation menuNavigation;
+
+    public event Action OnLobbyUpdated;
+
+    public bool IsInLobby => currentLobby != null;
+    public bool IsLobbyHost => MultiplayerSessionData.IsLobbyHost;
+    public string CurrentLobbyName => currentLobby != null ? currentLobby.Name : "-";
+    public int CurrentPlayerCount => currentLobby != null ? currentLobby.Players.Count : 0;
+    public int MaxLobbyPlayers => currentLobby != null ? currentLobby.MaxPlayers : maxPlayers;
+
+    public int ReadyPlayerCount { get; private set; }
+    public bool IsLocalPlayerReady { get; private set; }
+
+    public bool CanHostStartGame =>
+        IsLobbyHost &&
+        CurrentPlayerCount >= 2 &&
+        ReadyPlayerCount == CurrentPlayerCount &&
+        AreAllLobbyPlayersNetworkConnected;
+
+    public int NetworkConnectedPlayerCount =>
+        NetworkManager.Singleton != null &&
+        NetworkManager.Singleton.IsListening &&
+        NetworkManager.Singleton.IsHost
+            ? NetworkManager.Singleton.ConnectedClientsIds.Count
+            : 0;
+
+    public bool AreAllLobbyPlayersNetworkConnected =>
+        IsLobbyHost &&
+        NetworkConnectedPlayerCount >= CurrentPlayerCount;
+
+
+    //Start    
     private async void Start()
     {
         await InitializeUnityServices();
@@ -56,6 +90,7 @@ public class MultiplayerLobbyManager : MonoBehaviour
     private void Update()
     {
         HandleLobbyHeartbeat();
+        HandleLobbyPolling();
         
     }
 
@@ -101,6 +136,7 @@ public class MultiplayerLobbyManager : MonoBehaviour
             CreateLobbyOptions options = new CreateLobbyOptions
             {
                 IsPrivate = false,
+                Player = CreateLobbyPlayer(false),
                 Data = new Dictionary<string, DataObject>
                 {
                     {
@@ -122,9 +158,15 @@ public class MultiplayerLobbyManager : MonoBehaviour
             MultiplayerSessionData.SetLobby(currentLobby.Id, true);
             SetLobbyCode(currentLobby.LobbyCode);
             SetPlayerCount(currentLobby.Players.Count);
-            SetStatus("Lobby created. Share the code with other players.");
+            SetStatus("Lobi oluşturuldu. Kodunuzu paylaşabilirsiniz.");
 
             NetworkManager.Singleton.StartHost();
+
+            RefreshReadyData();
+            OnLobbyUpdated?.Invoke();
+
+            if (menuNavigation != null)
+                menuNavigation.OpenLobbyRoom();
         }
         catch (Exception e)
         {
@@ -140,7 +182,7 @@ public class MultiplayerLobbyManager : MonoBehaviour
 
         if (string.IsNullOrWhiteSpace(lobbyCode))
         {
-            SetStatus("Enter a lobby code.");
+            SetStatus("Lobi kodu giriniz.");
             return;
         }
 
@@ -159,7 +201,7 @@ public class MultiplayerLobbyManager : MonoBehaviour
 
             if (string.IsNullOrWhiteSpace(lobbyCode))
             {
-                SetStatus("Enter a lobby code.");
+                SetStatus("Lobi kodu giriniz.");
                 return;
             }
 
@@ -261,11 +303,20 @@ public class MultiplayerLobbyManager : MonoBehaviour
     {
         if (!NetworkManager.Singleton.IsHost)
         {
-            SetStatus("Only host can start.");
+            SetStatus("Sadece lobi sahibi oyunu başlatabilir.");
             return;
         }
 
-        NetworkManager.Singleton.SceneManager.LoadScene(gameplaySceneName, LoadSceneMode.Single);
+        if (!CanHostStartGame)
+        {
+            SetStatus("Tüm oyuncular hazır değil.");
+            return;
+        }
+
+        NetworkManager.Singleton.SceneManager.LoadScene(
+            gameplaySceneName,
+            LoadSceneMode.Single
+        );
     }
 
     private async void HandleLobbyHeartbeat()
@@ -327,6 +378,8 @@ public class MultiplayerLobbyManager : MonoBehaviour
 
             currentLobby = updatedLobby;
             SetPlayerCount(currentLobby.Players.Count);
+            RefreshReadyData();
+            OnLobbyUpdated?.Invoke();
         }
         catch (Exception e)
         {
@@ -337,21 +390,13 @@ public class MultiplayerLobbyManager : MonoBehaviour
     private void OnClientConnected(ulong clientId)
     {
         Debug.Log("Client connected: " + clientId);
-
-        if (NetworkManager.Singleton != null)
-        {
-            SetPlayerCount(NetworkManager.Singleton.ConnectedClientsIds.Count);
-        }
+        OnLobbyUpdated?.Invoke();
     }
 
     private void OnClientDisconnected(ulong clientId)
     {
         Debug.Log("Client disconnected: " + clientId);
-
-        if (NetworkManager.Singleton != null)
-        {
-            SetPlayerCount(NetworkManager.Singleton.ConnectedClientsIds.Count);
-        }
+        OnLobbyUpdated?.Invoke();
     }
 
     private void SetStatus(string message)
@@ -371,6 +416,168 @@ public class MultiplayerLobbyManager : MonoBehaviour
     private void SetPlayerCount(int count)
     {
         if (playerCountText != null)
-            playerCountText.text = $"Players: {count}/{maxPlayers}";
+            playerCountText.text = $"Oyuncular: {count}/{maxPlayers}";
+    }
+
+
+    //Multiplayer Lobby Thingy
+    public async void JoinLobbyById(string lobbyId)
+    {
+        await CleanupBeforeNewSession();
+
+        hasCreatedOrJoinedLobby = true;
+
+        try
+        {
+            SetStatus("Joining Lobby...");
+
+            currentLobby = await LobbyService.Instance.JoinLobbyByIdAsync(lobbyId);
+            MultiplayerSessionData.SetLobby(currentLobby.Id, false);
+
+            string relayJoinCode = currentLobby.Data[RelayJoinCodeKey].Value;
+
+            SetStatus("Joining Relay...");
+
+            JoinAllocation joinAllocation =
+                await RelayService.Instance.JoinAllocationAsync(relayJoinCode);
+
+            UnityTransport transport =
+                NetworkManager.Singleton.GetComponent<UnityTransport>();
+
+            transport.SetClientRelayData(
+                joinAllocation.RelayServer.IpV4,
+                (ushort)joinAllocation.RelayServer.Port,
+                joinAllocation.AllocationIdBytes,
+                joinAllocation.Key,
+                joinAllocation.ConnectionData,
+                joinAllocation.HostConnectionData
+            );
+
+            SetLobbyCode(currentLobby.LobbyCode);
+            SetPlayerCount(currentLobby.Players.Count);
+
+            SetStatus("Joined lobby.");
+            NetworkManager.Singleton.StartClient();
+            RefreshReadyData();
+            OnLobbyUpdated?.Invoke();
+
+            if (menuNavigation != null)
+                menuNavigation.OpenLobbyRoom();
+        }
+        catch (System.Exception e)
+        {
+            hasCreatedOrJoinedLobby = false;
+            Debug.LogError(e);
+            SetStatus("Join failed: " + e.Message);
+        }
+    }
+
+
+    //More Multiplayer Lobby Thingy
+    public async System.Threading.Tasks.Task EnsureServicesReady()
+    {
+        await InitializeUnityServices();
+    }
+
+    //Lobby Shenanigans
+    private Player CreateLobbyPlayer(bool isReady)
+    {
+        return new Player
+        {
+            Data = new Dictionary<string, PlayerDataObject>
+            {
+                {
+                    ReadyKey,
+                    new PlayerDataObject(
+                        PlayerDataObject.VisibilityOptions.Member,
+                        isReady ? "1" : "0"
+                    )
+                }
+            }
+        };
+    }
+
+    private void RefreshReadyData()
+    {
+        ReadyPlayerCount = 0;
+        IsLocalPlayerReady = false;
+
+        if (currentLobby == null || currentLobby.Players == null)
+            return;
+
+        string localPlayerId = AuthenticationService.Instance.PlayerId;
+
+        foreach (Player player in currentLobby.Players)
+        {
+            bool isReady = false;
+
+            if (player.Data != null &&
+                player.Data.TryGetValue(ReadyKey, out PlayerDataObject readyData))
+            {
+                isReady = readyData.Value == "1";
+            }
+
+            if (isReady)
+                ReadyPlayerCount++;
+
+            if (player.Id == localPlayerId)
+                IsLocalPlayerReady = isReady;
+        }
+    }
+
+    public async void ToggleReady()
+    {
+        if (currentLobby == null)
+            return;
+
+        bool newReadyState = !IsLocalPlayerReady;
+
+        try
+        {
+            await LobbyService.Instance.UpdatePlayerAsync(
+                currentLobby.Id,
+                AuthenticationService.Instance.PlayerId,
+                new UpdatePlayerOptions
+                {
+                    Data = new Dictionary<string, PlayerDataObject>
+                    {
+                        {
+                            ReadyKey,
+                            new PlayerDataObject(
+                                PlayerDataObject.VisibilityOptions.Member,
+                                newReadyState ? "1" : "0"
+                            )
+                        }
+                    }
+                }
+            );
+
+            await RefreshLobbyNow();
+        }
+        catch (Exception e)
+        {
+            Debug.LogError(e);
+            SetStatus("Hazır durumu güncellenemedi: " + e.Message);
+        }
+    }
+
+    private async Task RefreshLobbyNow()
+    {
+        if (currentLobby == null)
+            return;
+
+        currentLobby = await LobbyService.Instance.GetLobbyAsync(currentLobby.Id);
+
+        SetPlayerCount(currentLobby.Players.Count);
+        RefreshReadyData();
+        OnLobbyUpdated?.Invoke();
+    }
+
+    public async void LeaveLobbyAndReturnToBrowser()
+    {
+        await LeaveCurrentLobby();
+
+        if (menuNavigation != null)
+            menuNavigation.OpenLobbyBrowser();
     }
 }

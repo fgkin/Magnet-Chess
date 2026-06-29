@@ -747,12 +747,12 @@ public class GameManager : NetworkBehaviour
         }
 
         if (winners.Count == 0)
-            return "Game still running.";
+            return "Oyun devam ediyor.";
 
         if (winners.Count > 1)
-            return "Draw!";
+            return "Berabere!";
 
-        return $"{winners[0]} wins!";
+        return $"{winners[0]} kazandı!";
     }
 
     public string GetWinnerUILabel()
@@ -765,9 +765,9 @@ public class GameManager : NetworkBehaviour
                 return "";
 
             if (code == -1)
-                return "Draw!";
+                return "Berabere!";
 
-            return $"P{code} Wins!";
+            return $"P{code} kazandı!";
         }
 
         List<string> winners = new();
@@ -782,9 +782,9 @@ public class GameManager : NetworkBehaviour
             return "";
 
         if (winners.Count > 1)
-            return "Draw!";
+            return "Berabere!";
 
-        return $"{winners[0]} Wins!";
+        return $"{winners[0]} Kazandı!";
     }
 
     private void ApplyArenaSizeForPlayerCount()
